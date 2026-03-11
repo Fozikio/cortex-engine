@@ -7,6 +7,6 @@ mkdir -p "$STATE_DIR"
 
 # Clear session-scoped state from previous session
 > "$STATE_DIR/cortex-calls.log" 2>/dev/null
-> "$STATE_DIR/board-updated-repos.txt" 2>/dev/null
+> "$STATE_DIR/push-gate-state.txt" 2>/dev/null
 
 echo '{}'

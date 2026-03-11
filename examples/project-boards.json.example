@@ -1,7 +1,12 @@
 {
   "enabled": true,
   "strength": "block",
-  "description": "Maps repos to GitHub project boards. The project-board-gate hook reads this. Copy to .claude/state/project-boards.json and customize.",
+  "description": "Production push gate. Copy to .claude/state/project-boards.json and customize.",
+  "on_push": {
+    "require_board_update": true,
+    "require_ops_log": false,
+    "require_ops_log_message": "Log what you're pushing and why via ops_append() before pushing."
+  },
   "repos": {
     "my-repo": {
       "board_number": 1,

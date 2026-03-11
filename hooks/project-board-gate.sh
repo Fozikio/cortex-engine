@@ -1,33 +1,24 @@
 #!/usr/bin/env bash
 # ============================================================================
-# project-board-gate.sh — PreToolUse hook (Bash)
+# project-board-gate.sh — PreToolUse hook (Bash + MCP tools)
 # ============================================================================
-# Production gate: blocks git push/merge to tracked repos unless the project
-# board has been updated this session. Configurable via project-boards.json.
-#
-# Part of cortex-kit. Designed for production agents where project tracking
-# is fundamental, not optional.
+# Production gate for tracked repos. Configurable requirements before push:
+#   - Board update (gh issue/project commands)
+#   - Ops logging (ops_append via cortex MCP)
 #
 # Config: .claude/state/project-boards.json
-# State:  .claude/state/board-updated-repos.txt (session-scoped, cleared on start)
+# State:  .claude/state/push-gate-state.txt (session-scoped)
 #
-# Strength levels (from config):
-#   "block"   — prevents git push until board is updated (default)
-#   "enforce" — strong warning, allows push
-#   "off"     — disabled
-#
-# Installation:
-#   1. Copy project-boards.json.example to .claude/state/project-boards.json
-#   2. Edit repo→board mappings for your project
-#   3. Register in settings.json as PreToolUse hook on Bash (timeout: 8)
-#   4. Clear state file on SessionStart (add to session-lifecycle.sh)
+# The hook does two things depending on what's happening:
+#   1. On board/ops actions → records them in state file
+#   2. On git push → checks state file, blocks if requirements unmet
 # ============================================================================
 
 set -euo pipefail
 
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-.}"
 CONFIG_FILE="$PROJECT_DIR/.claude/state/project-boards.json"
-STATE_FILE="$PROJECT_DIR/.claude/state/board-updated-repos.txt"
+STATE_FILE="$PROJECT_DIR/.claude/state/push-gate-state.txt"
 
 # No config = no gate
 if [[ ! -f "$CONFIG_FILE" ]]; then
@@ -36,63 +27,93 @@ if [[ ! -f "$CONFIG_FILE" ]]; then
 fi
 
 # Read config
-ENABLED=$(python3 -c "import json; c=json.load(open('$CONFIG_FILE')); print(c.get('enabled', True))" 2>/dev/null || echo "True")
-STRENGTH=$(python3 -c "import json; c=json.load(open('$CONFIG_FILE')); print(c.get('strength', 'block'))" 2>/dev/null || echo "block")
+CONFIG=$(python3 -c "
+import json, sys
+c = json.load(open('$CONFIG_FILE'))
+print(json.dumps({
+  'enabled': c.get('enabled', True),
+  'strength': c.get('strength', 'block'),
+  'require_board': c.get('on_push', {}).get('require_board_update', True),
+  'require_ops': c.get('on_push', {}).get('require_ops_log', False),
+  'ops_message': c.get('on_push', {}).get('require_ops_log_message', ''),
+  'repos': {k: v for k, v in c.get('repos', {}).items()}
+}))
+" 2>/dev/null || echo '{"enabled":true,"strength":"block","require_board":true,"require_ops":false,"repos":{}}')
+
+ENABLED=$(echo "$CONFIG" | python3 -c "import json,sys; print(json.load(sys.stdin)['enabled'])" 2>/dev/null || echo "True")
+STRENGTH=$(echo "$CONFIG" | python3 -c "import json,sys; print(json.load(sys.stdin)['strength'])" 2>/dev/null || echo "block")
+REQUIRE_BOARD=$(echo "$CONFIG" | python3 -c "import json,sys; print(json.load(sys.stdin)['require_board'])" 2>/dev/null || echo "True")
+REQUIRE_OPS=$(echo "$CONFIG" | python3 -c "import json,sys; print(json.load(sys.stdin)['require_ops'])" 2>/dev/null || echo "False")
+OPS_MESSAGE=$(echo "$CONFIG" | python3 -c "import json,sys; print(json.load(sys.stdin)['ops_message'])" 2>/dev/null || echo "")
 
 if [[ "$ENABLED" == "False" || "$STRENGTH" == "off" ]]; then
   echo '{}'
   exit 0
 fi
 
-# Read the command from stdin
+# Read input
 INPUT=$(cat)
+
+# Detect tool context
+TOOL_NAME=$(echo "$INPUT" | python3 -c "import json,sys; print(json.load(sys.stdin).get('tool_name',''))" 2>/dev/null || echo "")
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TRACK: MCP ops_append calls → mark ops logged
+# ═══════════════════════════════════════════════════════════════════════════
+if [[ "$TOOL_NAME" == "mcp__cortex__ops_append" ]]; then
+  mkdir -p "$(dirname "$STATE_FILE")"
+  echo "ops_logged" >> "$STATE_FILE" 2>/dev/null
+  echo '{}'
+  exit 0
+fi
+
+# Only process Bash commands from here
+if [[ "$TOOL_NAME" != "Bash" && -n "$TOOL_NAME" ]]; then
+  echo '{}'
+  exit 0
+fi
+
 COMMAND=$(echo "$INPUT" | python3 -c "import json,sys; print(json.load(sys.stdin).get('tool_input',{}).get('command',''))" 2>/dev/null || echo "")
 
-# === GATE 1: Detect git push/merge to tracked repos ===
-IS_GIT_PUSH=false
-IS_GIT_MERGE=false
-if echo "$COMMAND" | grep -qE 'git\s+push'; then
-  IS_GIT_PUSH=true
-fi
-if echo "$COMMAND" | grep -qE 'git\s+merge'; then
-  IS_GIT_MERGE=true
-fi
+# ═══════════════════════════════════════════════════════════════════════════
+# TRACK: gh board/issue commands → mark board updated for detected repo
+# ═══════════════════════════════════════════════════════════════════════════
+if echo "$COMMAND" | grep -qE 'gh\s+(project\s+item|issue\s+(create|comment|close|edit)|pr\s+create)'; then
+  REPOS=$(echo "$CONFIG" | python3 -c "import json,sys; [print(r) for r in json.load(sys.stdin)['repos']]" 2>/dev/null || echo "")
 
-# Not a tracked git command — check for board update commands
-if [[ "$IS_GIT_PUSH" == "false" && "$IS_GIT_MERGE" == "false" ]]; then
-  if echo "$COMMAND" | grep -qE 'gh\s+(project\s+item-edit|issue\s+(create|comment|close)|pr\s+create)'; then
-    REPOS=$(python3 -c "
-import json
-c = json.load(open('$CONFIG_FILE'))
-for r in c.get('repos', {}):
-    print(r)
-" 2>/dev/null || echo "")
-
-    mkdir -p "$(dirname "$STATE_FILE")"
-    for repo in $REPOS; do
-      if echo "$COMMAND" | grep -qi "$repo"; then
-        echo "$repo" >> "$STATE_FILE" 2>/dev/null
-      fi
-    done
-
-    CWD_REPO=$(basename "$(pwd)" 2>/dev/null || echo "")
-    if python3 -c "import json; c=json.load(open('$CONFIG_FILE')); exit(0 if '$CWD_REPO' in c.get('repos',{}) else 1)" 2>/dev/null; then
-      echo "$CWD_REPO" >> "$STATE_FILE" 2>/dev/null
+  mkdir -p "$(dirname "$STATE_FILE")"
+  for repo in $REPOS; do
+    if echo "$COMMAND" | grep -qi "$repo"; then
+      echo "board:$repo" >> "$STATE_FILE" 2>/dev/null
     fi
+  done
+
+  # Fallback: cwd-based detection
+  CWD_REPO=$(basename "$(pwd)" 2>/dev/null || echo "")
+  if echo "$CONFIG" | python3 -c "import json,sys; c=json.load(sys.stdin); exit(0 if '$CWD_REPO' in c['repos'] else 1)" 2>/dev/null; then
+    echo "board:$CWD_REPO" >> "$STATE_FILE" 2>/dev/null
   fi
 
   echo '{}'
   exit 0
 fi
 
-# === Detect which tracked repo this targets ===
+# ═══════════════════════════════════════════════════════════════════════════
+# GATE: git push/merge → check requirements
+# ═══════════════════════════════════════════════════════════════════════════
+IS_GIT_PUSH=false
+if echo "$COMMAND" | grep -qE 'git\s+push'; then
+  IS_GIT_PUSH=true
+fi
+
+if [[ "$IS_GIT_PUSH" == "false" ]]; then
+  echo '{}'
+  exit 0
+fi
+
+# Detect which tracked repo
 DETECTED_REPO=""
-REPOS=$(python3 -c "
-import json
-c = json.load(open('$CONFIG_FILE'))
-for r in c.get('repos', {}):
-    print(r)
-" 2>/dev/null || echo "")
+REPOS=$(echo "$CONFIG" | python3 -c "import json,sys; [print(r) for r in json.load(sys.stdin)['repos']]" 2>/dev/null || echo "")
 
 for repo in $REPOS; do
   if echo "$COMMAND" | grep -qi "$repo"; then
@@ -102,12 +123,8 @@ for repo in $REPOS; do
 done
 
 if [[ -z "$DETECTED_REPO" ]]; then
-  CMD_DIR=$(echo "$COMMAND" | grep -oP 'cd\s+\K[^\s;&]+' | head -1 || echo "")
-  if [[ -n "$CMD_DIR" ]]; then
-    DIR_BASE=$(basename "$CMD_DIR" 2>/dev/null || echo "")
-  else
-    DIR_BASE=$(basename "$(pwd)" 2>/dev/null || echo "")
-  fi
+  CMD_DIR=$(echo "$COMMAND" | grep -oP 'cd\s+\K[^\s;&]+' | head -1 2>/dev/null || echo "")
+  DIR_BASE=$(basename "${CMD_DIR:-$(pwd)}" 2>/dev/null || echo "")
 
   for repo in $REPOS; do
     if [[ "$DIR_BASE" == "$repo" ]]; then
@@ -123,23 +140,40 @@ if [[ -z "$DETECTED_REPO" ]]; then
   exit 0
 fi
 
-# === Check if board was updated this session ===
-BOARD_UPDATED=false
-if [[ -f "$STATE_FILE" ]] && grep -q "^${DETECTED_REPO}$" "$STATE_FILE" 2>/dev/null; then
-  BOARD_UPDATED=true
+# === Check requirements ===
+MISSING=""
+
+if [[ "$REQUIRE_BOARD" == "True" ]]; then
+  if ! grep -q "^board:${DETECTED_REPO}$" "$STATE_FILE" 2>/dev/null; then
+    BOARD_NUM=$(echo "$CONFIG" | python3 -c "import json,sys; print(json.load(sys.stdin)['repos']['$DETECTED_REPO']['board_number'])" 2>/dev/null || echo "?")
+    BOARD_OWNER=$(echo "$CONFIG" | python3 -c "import json,sys; print(json.load(sys.stdin)['repos']['$DETECTED_REPO']['board_owner'])" 2>/dev/null || echo "?")
+    MISSING="${MISSING}\\n**Board update required:**\\n"
+    MISSING="${MISSING}1. Check board: \`gh project item-list $BOARD_NUM --owner $BOARD_OWNER\`\\n"
+    MISSING="${MISSING}2. Update issue: \`gh issue create/comment -R $BOARD_OWNER/$DETECTED_REPO\`\\n"
+    MISSING="${MISSING}3. Move items to reflect current status\\n"
+  fi
 fi
 
-if [[ "$BOARD_UPDATED" == "true" ]]; then
+if [[ "$REQUIRE_OPS" == "True" ]]; then
+  if ! grep -q "^ops_logged$" "$STATE_FILE" 2>/dev/null; then
+    MISSING="${MISSING}\\n**Ops log required:**\\n"
+    if [[ -n "$OPS_MESSAGE" ]]; then
+      MISSING="${MISSING}${OPS_MESSAGE}\\n"
+    else
+      MISSING="${MISSING}Call \`ops_append()\` to log what you're pushing and why.\\n"
+    fi
+    MISSING="${MISSING}\`mcp__cortex__ops_append({ content: \"Pushing: [what changed]\", project: \"$DETECTED_REPO\" })\`\\n"
+  fi
+fi
+
+# All requirements met — allow
+if [[ -z "$MISSING" ]]; then
   echo '{}'
   exit 0
 fi
 
-# === BLOCK or ENFORCE ===
-BOARD_NUM=$(python3 -c "import json; c=json.load(open('$CONFIG_FILE')); print(c['repos']['$DETECTED_REPO']['board_number'])" 2>/dev/null || echo "?")
-BOARD_OWNER=$(python3 -c "import json; c=json.load(open('$CONFIG_FILE')); print(c['repos']['$DETECTED_REPO']['board_owner'])" 2>/dev/null || echo "?")
-REPO_DESC=$(python3 -c "import json; c=json.load(open('$CONFIG_FILE')); print(c['repos']['$DETECTED_REPO'].get('description',''))" 2>/dev/null || echo "")
-
-MESSAGE="**[PROJECT BOARD GATE]** You are pushing to \`$DETECTED_REPO\` ($REPO_DESC) but haven't updated the project board this session.\n\n**Before pushing, update the board:**\n1. Check current board: \`gh project item-list $BOARD_NUM --owner $BOARD_OWNER\`\n2. Create or update the relevant issue: \`gh issue create/comment -R $BOARD_OWNER/$DETECTED_REPO\`\n3. Move board items to reflect current status\n4. Then retry your push\n\n**To skip (not recommended):** Set \`\"strength\": \"off\"\` in \`.claude/state/project-boards.json\`"
+REPO_DESC=$(echo "$CONFIG" | python3 -c "import json,sys; print(json.load(sys.stdin)['repos']['$DETECTED_REPO'].get('description',''))" 2>/dev/null || echo "")
+MESSAGE="**[PUSH GATE]** Pushing to \`$DETECTED_REPO\` ($REPO_DESC) — requirements not met:\\n${MISSING}\\nComplete the above, then retry your push.\\n\\n*Config: \`.claude/state/project-boards.json\` — set \`strength\` to \`off\` to disable.*"
 
 if [[ "$STRENGTH" == "block" ]]; then
   HOOK_EVENT=$(echo "$INPUT" | python3 -c "import json,sys; print(json.load(sys.stdin).get('hook_event_name','PreToolUse'))" 2>/dev/null || echo "PreToolUse")

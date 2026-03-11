@@ -5,7 +5,8 @@
 STATE_DIR="${CLAUDE_PROJECT_DIR:-.}/.claude/state"
 mkdir -p "$STATE_DIR"
 
-# Clear call log from previous session
+# Clear session-scoped state from previous session
 > "$STATE_DIR/cortex-calls.log" 2>/dev/null
+> "$STATE_DIR/board-updated-repos.txt" 2>/dev/null
 
 echo '{}'

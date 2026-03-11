@@ -1,0 +1,12 @@
+{
+  "enabled": true,
+  "strength": "block",
+  "description": "Maps repos to GitHub project boards. The project-board-gate hook reads this. Copy to .claude/state/project-boards.json and customize.",
+  "repos": {
+    "my-repo": {
+      "board_number": 1,
+      "board_owner": "my-org",
+      "description": "Main application"
+    }
+  }
+}

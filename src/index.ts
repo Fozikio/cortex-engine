@@ -82,6 +82,8 @@ export type { DigestOptions, DigestResult } from './engines/digest.js';
 
 // Stores
 export { SqliteCortexStore } from './stores/sqlite.js';
+export { FirestoreCortexStore } from './stores/firestore.js';
+export type { FirestoreStoreOptions } from './stores/firestore.js';
 
 
 // Namespace

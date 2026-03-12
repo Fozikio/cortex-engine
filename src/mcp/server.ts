@@ -17,6 +17,7 @@ import { NamespaceManager } from '../namespace/manager.js';
 import { TriggerRegistry } from '../triggers/registry.js';
 import { BridgeRegistry } from '../bridges/registry.js';
 import { SqliteCortexStore } from '../stores/sqlite.js';
+import { FirestoreCortexStore } from '../stores/firestore.js';
 import { OllamaEmbedProvider, OllamaLLMProvider } from '../providers/ollama.js';
 import { createTools, CORE_TOOLS } from './tools.js';
 import type { ToolContext } from './tools.js';
@@ -35,6 +36,9 @@ export async function createServer(config: CortexConfig): Promise<Server> {
         config.store_options?.sqlite_path ?? './cortex.db',
         prefix,
       );
+    }
+    if (config.store === 'firestore') {
+      return createFirestoreStore(config, prefix);
     }
     throw new Error(`Unsupported store: ${config.store}`);
   });
@@ -123,6 +127,27 @@ export async function startServer(config: CortexConfig): Promise<void> {
 }
 
 // ─── Provider Factories ───────────────────────────────────────────────────────
+
+// Firestore store factory — lazy-loads firebase-admin to avoid import errors
+// when running in SQLite-only mode.
+let _firestoreDb: import('@google-cloud/firestore').Firestore | null = null;
+function createFirestoreStore(config: CortexConfig, prefix: string): FirestoreCortexStore {
+  if (!_firestoreDb) {
+    // Dynamic imports to avoid loading firebase-admin when using SQLite
+    const { getApps, initializeApp } = require('firebase-admin/app') as typeof import('firebase-admin/app');
+    if (getApps().length === 0) {
+      initializeApp({
+        projectId: config.store_options?.gcp_project_id,
+      });
+    }
+    const { getFirestore } = require('firebase-admin/firestore') as typeof import('firebase-admin/firestore');
+    _firestoreDb = config.store_options?.firestore_database_id
+      ? getFirestore(config.store_options.firestore_database_id)
+      : getFirestore();
+    _firestoreDb.settings({ ignoreUndefinedProperties: true });
+  }
+  return new FirestoreCortexStore(_firestoreDb, prefix);
+}
 
 function createEmbedProvider(config: CortexConfig): OllamaEmbedProvider {
   switch (config.embed) {

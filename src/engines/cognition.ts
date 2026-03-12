@@ -128,15 +128,10 @@ async function clusterObservations(
       if (nearest.length > 0 && nearest[0].score >= threshold) {
         const nearestMemoryId = nearest[0].memory.id;
 
-        // Create an edge recording the clustering relationship.
-        await store.putEdge({
-          source_id: nearestMemoryId,
-          target_id: nearestMemoryId,
-          relation: 'related',
-          weight: nearest[0].score,
-          evidence: obs.content.slice(0, 200),
-          created_at: new Date(),
-        });
+        // Bump the memory's access count to reflect the clustering.
+        // No edge needed — the observation→memory relationship is implicit
+        // in the processing, and self-referential edges are useless noise.
+        await store.touchMemory(nearestMemoryId, {});
 
         await store.markObservationProcessed(obs.id);
         clustered++;

@@ -79,3 +79,9 @@ export { SqliteCortexStore } from './stores/sqlite.js';
 
 // Providers
 export { OllamaEmbedProvider, OllamaLLMProvider } from './providers/ollama.js';
+
+// Triggers
+export { TriggerRegistry } from './triggers/registry.js';
+export type { ResolvedTrigger } from './triggers/registry.js';
+export { executeIngestionPipeline } from './triggers/pipeline.js';
+export type { ToolHandler, PipelineResult, PipelineStepResult } from './triggers/pipeline.js';

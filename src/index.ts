@@ -74,6 +74,9 @@ export {
   MAX_ACTIVATION_DEPTH,
 } from './engines/memory.js';
 
+export { dreamConsolidate } from './engines/cognition.js';
+export type { DreamResult, DreamOptions } from './engines/cognition.js';
+
 // Stores
 export { SqliteCortexStore } from './stores/sqlite.js';
 

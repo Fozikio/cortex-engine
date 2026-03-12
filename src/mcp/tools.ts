@@ -13,7 +13,7 @@ import type { Session } from '../core/session.js';
 import type { NamespaceManager } from '../namespace/manager.js';
 import type { TriggerRegistry } from '../triggers/registry.js';
 import type { BridgeRegistry } from '../bridges/registry.js';
-import type { OpsEntryType, OpsStatus, MemoryCategory } from '../core/types.js';
+import type { OpsEntryType, OpsStatus } from '../core/types.js';
 import { executeIngestionPipeline } from '../triggers/pipeline.js';
 import { checkBridges } from '../bridges/bridge.js';
 import {
@@ -23,7 +23,8 @@ import {
   memoryToSummary,
 } from '../engines/memory.js';
 import { extractKeywords } from '../engines/keywords.js';
-import { retrievability, scheduleNext, elapsedDaysSince, newFSRSState } from '../engines/fsrs.js';
+import { retrievability, scheduleNext, elapsedDaysSince } from '../engines/fsrs.js';
+import { dreamConsolidate } from '../engines/cognition.js';
 
 // ─── Tool Context ─────────────────────────────────────────────────────────────
 
@@ -865,107 +866,33 @@ const wanderTool: ToolDefinition = {
 
 const dreamTool: ToolDefinition = {
   name: 'dream',
-  description: 'Consolidation pass over unprocessed observations. For each observation: run prediction error gate → decide merge/link/novel → mark as processed. Returns a summary of what was consolidated.',
+  description: 'Run the full 7-phase dream consolidation cycle: cluster observations into existing memories, refine definitions, create new memories from unclustered observations, discover edges between recently active concepts, passive FSRS review, cross-domain abstraction (REM), and a narrative report.',
   inputSchema: {
     type: 'object',
     properties: {
       namespace: { type: 'string', description: 'Namespace to consolidate (defaults to default namespace)' },
-      limit: { type: 'number', description: 'Max observations to process (default: 20)' },
+      limit: { type: 'number', description: 'Max observations to process in the cluster phase (default: 20)' },
     },
   },
   async handler(args, ctx) {
     const namespace = optStr(args, 'namespace');
     const limit = optNum(args, 'limit', 20);
 
-    const store: CortexStore = ctx.namespaces.getStore(namespace);
-    const provenance = ctx.session.getProvenance();
+    const store = ctx.namespaces.getStore(namespace);
+    const nsConfig = ctx.namespaces.getConfig(namespace);
 
-    // Get unprocessed observations
-    const observations = await store.getUnprocessedObservations(limit);
-
-    const summary = {
-      processed: 0,
-      merged: 0,
-      linked: 0,
-      novel: 0,
-      errors: 0,
-      details: [] as Array<{ obs_id: string; decision: string; nearest_id?: string; similarity: number }>,
-    };
-
-    for (const obs of observations) {
-      try {
-        // Ensure we have an embedding
-        let embedding = obs.embedding;
-        if (!embedding || embedding.length === 0) {
-          embedding = await ctx.embed.embed(obs.content);
-        }
-
-        // Prediction error gate with namespace-specific thresholds
-        const nsConfig = ctx.namespaces.getConfig(namespace);
-        const gate = await predictionErrorGate(store, embedding, {
-          merge: nsConfig.similarity_merge,
-          link: nsConfig.similarity_link,
-        });
-
-        if (gate.decision === 'novel') {
-          // Create a new memory from this observation
-          const category: MemoryCategory = 'observation';
-          await store.putMemory({
-            name: obs.content.slice(0, 60) + (obs.content.length > 60 ? '...' : ''),
-            definition: obs.content,
-            category,
-            salience: obs.salience,
-            confidence: 0.5,
-            access_count: 0,
-            created_at: new Date(),
-            updated_at: new Date(),
-            last_accessed: new Date(),
-            source_files: obs.source_file ? [obs.source_file] : [],
-            embedding,
-            tags: obs.keywords,
-            fsrs: newFSRSState(),
-            provenance,
-          });
-          summary.novel++;
-        } else if (gate.decision === 'link' && gate.nearest_id) {
-          // Create an edge linking to nearest memory
-          await store.putEdge({
-            source_id: gate.nearest_id,
-            target_id: gate.nearest_id, // self-referential placeholder; replace with obs-based memory if needed
-            relation: 'related',
-            weight: gate.max_similarity,
-            evidence: obs.content.slice(0, 200),
-            created_at: new Date(),
-          });
-          summary.linked++;
-        } else {
-          // merge — observation duplicates existing memory, skip creation
-          summary.merged++;
-        }
-
-        // Mark observation as processed
-        await store.markObservationProcessed(obs.id);
-
-        summary.details.push({
-          obs_id: obs.id,
-          decision: gate.decision,
-          nearest_id: gate.nearest_id,
-          similarity: gate.max_similarity,
-        });
-        summary.processed++;
-      } catch (err) {
-        summary.errors++;
-        summary.details.push({
-          obs_id: obs.id,
-          decision: 'error',
-          similarity: 0,
-        });
-      }
-    }
+    const result = await dreamConsolidate(store, ctx.embed, ctx.llm, {
+      observation_limit: limit,
+      similarity_merge: nsConfig.similarity_merge,
+      similarity_link: nsConfig.similarity_link,
+    });
 
     return {
       namespace: namespace ?? ctx.namespaces.getDefaultNamespace(),
-      ...summary,
+      ...result.phases,
+      total_processed: result.total_processed,
+      duration_ms: result.duration_ms,
+      integration_rate: result.integration_rate,
     };
   },
 };

@@ -96,3 +96,8 @@ export { BridgeRegistry } from './bridges/registry.js';
 export type { ResolvedBridgeRule } from './bridges/registry.js';
 export { evaluateCondition, interpolateTemplate, checkBridges } from './bridges/bridge.js';
 export type { BridgeContext, BridgeResult } from './bridges/bridge.js';
+
+// MCP server
+export { createServer, startServer } from './mcp/server.js';
+export { createTools, CORE_TOOLS } from './mcp/tools.js';
+export type { ToolDefinition, ToolContext } from './mcp/tools.js';

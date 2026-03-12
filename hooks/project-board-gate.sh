@@ -123,7 +123,7 @@ for repo in $REPOS; do
 done
 
 if [[ -z "$DETECTED_REPO" ]]; then
-  CMD_DIR=$(echo "$COMMAND" | grep -oP 'cd\s+\K[^\s;&]+' | head -1 2>/dev/null || echo "")
+  CMD_DIR=$(echo "$COMMAND" | sed -n 's/.*cd[[:space:]]\+\([^[:space:];&]*\).*/\1/p' | head -1 2>/dev/null || echo "")
   DIR_BASE=$(basename "${CMD_DIR:-$(pwd)}" 2>/dev/null || echo "")
 
   for repo in $REPOS; do

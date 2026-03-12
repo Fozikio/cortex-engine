@@ -63,5 +63,16 @@ export {
 
 export { extractKeywords } from './engines/keywords.js';
 
+export {
+  predictionErrorGate,
+  hydeExpand,
+  spreadActivation,
+  memoryToSummary,
+  SIMILARITY_MERGE,
+  SIMILARITY_LINK,
+  ACTIVATION_DECAY,
+  MAX_ACTIVATION_DEPTH,
+} from './engines/memory.js';
+
 // Providers
 export { OllamaEmbedProvider, OllamaLLMProvider } from './providers/ollama.js';

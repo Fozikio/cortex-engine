@@ -25,6 +25,7 @@ import {
 import { extractKeywords } from '../engines/keywords.js';
 import { retrievability, scheduleNext, elapsedDaysSince } from '../engines/fsrs.js';
 import { dreamConsolidate } from '../engines/cognition.js';
+import { digestDocument } from '../engines/digest.js';
 
 // ─── Tool Context ─────────────────────────────────────────────────────────────
 
@@ -200,8 +201,8 @@ const queryTool: ToolDefinition = {
 
     // Fire triggers and bridges after query
     const resolvedNs = namespace ?? ctx.namespaces.getDefaultNamespace();
-    await fireTriggers(ctx, resolvedNs, 'query', text, { query: text, result_count: results.length }, [queryTool, observeTool, recallTool, neighborsTool, statsTool, opsAppendTool, opsQueryTool, opsUpdateTool, predictTool, validateTool, believeTool, reflectTool, wanderTool, dreamTool]);
-    await fireBridges(ctx, resolvedNs, 'query', { query: text, result_count: results.length }, [queryTool, observeTool, recallTool, neighborsTool, statsTool, opsAppendTool, opsQueryTool, opsUpdateTool, predictTool, validateTool, believeTool, reflectTool, wanderTool, dreamTool]);
+    await fireTriggers(ctx, resolvedNs, 'query', text, { query: text, result_count: results.length }, [queryTool, observeTool, recallTool, neighborsTool, statsTool, opsAppendTool, opsQueryTool, opsUpdateTool, predictTool, validateTool, believeTool, reflectTool, wanderTool, dreamTool, digestTool]);
+    await fireBridges(ctx, resolvedNs, 'query', { query: text, result_count: results.length }, [queryTool, observeTool, recallTool, neighborsTool, statsTool, opsAppendTool, opsQueryTool, opsUpdateTool, predictTool, validateTool, believeTool, reflectTool, wanderTool, dreamTool, digestTool]);
 
     return {
       query: text,
@@ -277,7 +278,7 @@ const observeTool: ToolDefinition = {
 
     // Fire triggers and bridges after observe
     const resolvedNs = namespace ?? ctx.namespaces.getDefaultNamespace();
-    const allTools = [queryTool, observeTool, recallTool, neighborsTool, statsTool, opsAppendTool, opsQueryTool, opsUpdateTool, predictTool, validateTool, believeTool, reflectTool, wanderTool, dreamTool];
+    const allTools = [queryTool, observeTool, recallTool, neighborsTool, statsTool, opsAppendTool, opsQueryTool, opsUpdateTool, predictTool, validateTool, believeTool, reflectTool, wanderTool, dreamTool, digestTool];
     await fireTriggers(ctx, resolvedNs, 'observe', text, { observation_id: id, decision: gate.decision }, allTools);
     await fireBridges(ctx, resolvedNs, 'observe', result, allTools);
 
@@ -629,7 +630,7 @@ const validateTool: ToolDefinition = {
     const namespace = optStr(args, 'namespace');
 
     const store: CortexStore = ctx.namespaces.getStore(namespace);
-    const allTools = [queryTool, observeTool, recallTool, neighborsTool, statsTool, opsAppendTool, opsQueryTool, opsUpdateTool, predictTool, validateTool, believeTool, reflectTool, wanderTool, dreamTool];
+    const allTools = [queryTool, observeTool, recallTool, neighborsTool, statsTool, opsAppendTool, opsQueryTool, opsUpdateTool, predictTool, validateTool, believeTool, reflectTool, wanderTool, dreamTool, digestTool];
 
     const memory = await store.getMemory(predictionId);
     if (!memory) {
@@ -691,7 +692,7 @@ const believeTool: ToolDefinition = {
     const namespace = optStr(args, 'namespace');
 
     const store: CortexStore = ctx.namespaces.getStore(namespace);
-    const allTools = [queryTool, observeTool, recallTool, neighborsTool, statsTool, opsAppendTool, opsQueryTool, opsUpdateTool, predictTool, validateTool, believeTool, reflectTool, wanderTool, dreamTool];
+    const allTools = [queryTool, observeTool, recallTool, neighborsTool, statsTool, opsAppendTool, opsQueryTool, opsUpdateTool, predictTool, validateTool, believeTool, reflectTool, wanderTool, dreamTool, digestTool];
 
     const memory = await store.getMemory(conceptId);
     if (!memory) {
@@ -897,9 +898,64 @@ const dreamTool: ToolDefinition = {
   },
 };
 
+const digestTool: ToolDefinition = {
+  name: 'digest',
+  description: 'Process a document through cortex — extract knowledge via observe, generate insights via reflect. Use for batch ingestion of files, plans, creative writing, or any content cortex should learn from.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      content: { type: 'string', description: 'The document content to digest (markdown, with or without frontmatter)' },
+      source_file: { type: 'string', description: 'Source file path for provenance tracking' },
+      pipeline: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Pipeline steps to run (default: ["observe", "reflect"])',
+      },
+      namespace: { type: 'string', description: 'Target namespace (defaults to default)' },
+      salience: { type: 'number', description: 'Salience override 0.0-1.0 (default: auto-detect)' },
+    },
+    required: ['content'],
+  },
+  async handler(args, ctx) {
+    const content = str(args, 'content');
+    const sourceFile = optStr(args, 'source_file');
+    const namespace = optStr(args, 'namespace');
+    const salience = args['salience'] !== undefined ? optNum(args, 'salience', 5) : undefined;
+    const rawPipeline = args['pipeline'];
+    const pipeline = Array.isArray(rawPipeline)
+      ? (rawPipeline as unknown[]).filter((s): s is string => typeof s === 'string')
+      : undefined;
+
+    const store: CortexStore = ctx.namespaces.getStore(namespace);
+    const resolvedNs = namespace ?? ctx.namespaces.getDefaultNamespace();
+
+    const result = await digestDocument(content, store, ctx.embed, ctx.llm, {
+      pipeline,
+      namespace: resolvedNs,
+      source_file: sourceFile,
+      salience,
+    });
+
+    const allTools = [queryTool, observeTool, recallTool, neighborsTool, statsTool, opsAppendTool, opsQueryTool, opsUpdateTool, predictTool, validateTool, believeTool, reflectTool, wanderTool, dreamTool, digestTool];
+    await fireTriggers(ctx, resolvedNs, 'observe', content, { observation_ids: result.observation_ids }, allTools);
+    await fireBridges(ctx, resolvedNs, 'observe', { observation_ids: result.observation_ids, source_file: sourceFile }, allTools);
+
+    return {
+      namespace: resolvedNs,
+      source_file: sourceFile ?? '',
+      observation_ids: result.observation_ids,
+      memories_linked: result.memories_linked,
+      insights: result.insights,
+      pipeline_executed: result.pipeline_executed,
+      processed_at: result.processed_at.toISOString(),
+      duration_ms: result.duration_ms,
+    };
+  },
+};
+
 // ─── Registry ─────────────────────────────────────────────────────────────────
 
-/** All 14 cognitive tool definitions. */
+/** All 15 cognitive tool definitions. */
 export function createTools(): ToolDefinition[] {
   return [
     queryTool,
@@ -916,6 +972,7 @@ export function createTools(): ToolDefinition[] {
     reflectTool,
     wanderTool,
     dreamTool,
+    digestTool,
   ];
 }
 

@@ -77,6 +77,9 @@ export {
 export { dreamConsolidate } from './engines/cognition.js';
 export type { DreamResult, DreamOptions } from './engines/cognition.js';
 
+export { digestDocument } from './engines/digest.js';
+export type { DigestOptions, DigestResult } from './engines/digest.js';
+
 // Stores
 export { SqliteCortexStore } from './stores/sqlite.js';
 

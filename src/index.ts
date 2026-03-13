@@ -93,6 +93,10 @@ export { NamespaceManager } from './namespace/manager.js';
 
 // Providers
 export { OllamaEmbedProvider, OllamaLLMProvider } from './providers/ollama.js';
+export { VertexEmbedProvider } from './providers/vertex-embed.js';
+export type { VertexEmbedOptions } from './providers/vertex-embed.js';
+export { VertexLLMProvider } from './providers/vertex-llm.js';
+export type { VertexLLMOptions } from './providers/vertex-llm.js';
 export { LocalNLIProvider, nliToCortexVerdict } from './providers/nli-http.js';
 
 // Triggers
@@ -110,4 +114,7 @@ export type { BridgeContext, BridgeResult } from './bridges/bridge.js';
 // MCP server
 export { createServer, startServer } from './mcp/server.js';
 export { createTools, CORE_TOOLS } from './mcp/tools.js';
-export type { ToolDefinition, ToolContext } from './mcp/tools.js';
+export type { ToolDefinition, ToolContext, ToolPlugin } from './mcp/tools.js';
+
+// Plugins
+export { loadPlugins } from './plugins/loader.js';

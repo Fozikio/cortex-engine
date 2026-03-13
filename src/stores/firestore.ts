@@ -10,7 +10,7 @@
  */
 
 import type { Firestore, CollectionReference, DocumentData } from '@google-cloud/firestore';
-import { FieldValue } from '@google-cloud/firestore';
+import { FieldValue, Timestamp } from '@google-cloud/firestore';
 import type { CortexStore } from '../core/store.js';
 import type {
   Memory,
@@ -30,9 +30,7 @@ import type {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 /** Convert a JS Date to Firestore Timestamp. */
-function toTimestamp(d: Date | undefined | null): FirebaseFirestore.Timestamp {
-  // Dynamic import-free: use FieldValue's parent module
-  const { Timestamp } = require('firebase-admin/firestore') as typeof import('firebase-admin/firestore');
+function toTimestamp(d: Date | undefined | null): Timestamp {
   if (!d) return Timestamp.now();
   return Timestamp.fromDate(d instanceof Date ? d : new Date(String(d)));
 }
@@ -131,6 +129,7 @@ function docToSummary(id: string, data: DocumentData): MemorySummary {
       state: data.fsrs?.state ?? 'new',
       last_review: toDateOrNull(data.fsrs?.last_review),
     },
+    provenance: docProvenance(data),
   };
 }
 

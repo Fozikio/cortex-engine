@@ -151,6 +151,7 @@ function rowToSummary(r: MemoryRow): MemorySummary {
       state: r.fsrs_state as FSRSData['state'],
       last_review: toDateOrNull(r.fsrs_last_review),
     },
+    provenance: prov(r),
   };
 }
 

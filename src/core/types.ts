@@ -59,6 +59,7 @@ export interface MemorySummary {
   updated_at: Date;
   tags: string[];
   fsrs: FSRSData;
+  provenance?: ModelProvenance;
 }
 
 // ─── Edge ─────────────────────────────────────────────────────────────────────

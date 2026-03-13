@@ -203,6 +203,7 @@ const queryTool: ToolDefinition = {
           hop_count: r.hop_count,
           retrievability: ret,
           last_accessed: now.toISOString(),
+          provenance: r.memory.provenance,
         };
       })
     );
@@ -331,6 +332,7 @@ const recallTool: ToolDefinition = {
         source_file: o['source_file'],
         created_at: o['created_at'],
         processed: o['processed'],
+        provenance: o['provenance'],
       })),
     };
   },

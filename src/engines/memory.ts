@@ -191,5 +191,6 @@ export function memoryToSummary(memory: Memory): MemorySummary {
     updated_at: memory.updated_at,
     tags: memory.tags,
     fsrs: memory.fsrs,
+    provenance: memory.provenance,
   };
 }

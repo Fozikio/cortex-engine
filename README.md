@@ -1,104 +1,65 @@
-# cortex-kit
+# cortex-engine
 
-Portable agent infrastructure for cortex-powered AI agents. Install hooks, hookify rules, skills, and agent configs that wire Claude Code agents into a cortex memory system — turning any project into a cortex-grounded workspace.
+Cognitive engine for AI agents — semantic memory, observations, embeddings, dream consolidation. Cloud Run service + MCP tools.
 
-## Prerequisites
+## What It Does
 
-- [cortex API](https://github.com/idapixl/idapixl-cortex) v0.3.0 or later
-- [Claude Code](https://claude.ai/claude-code) v1.0.0 or later
-- `jq` (for hooks) and `curl` (for telemetry)
+`cortex-engine` is a portable TypeScript service that gives AI agents persistent, structured memory. It handles:
 
-## Installation
+- **Semantic memory graph** — store and retrieve observations as interconnected nodes
+- **Embeddings** — vector representations via pluggable providers (OpenAI, Vertex AI, Anthropic)
+- **Dream consolidation** — background process that reinforces and connects memories over time
+- **FSRS scheduling** — spaced-repetition scheduling for memory retention
+- **MCP server** — exposes cognitive tools (`query`, `observe`, `believe`, `wander`, etc.) over the Model Context Protocol
 
-```bash
-git clone https://github.com/idapixl/cortex-kit.git
-cd cortex-kit
-./setup.sh --target /path/to/your/project
-```
+Runs as a standalone Cloud Run service or embedded in any Node.js environment.
 
-On Windows:
+## Architecture
 
-```powershell
-git clone https://github.com/idapixl/cortex-kit.git
-cd cortex-kit
-.\setup.ps1 -Target C:\path\to\your\project
-```
+| Module | Role |
+|--------|------|
+| `core` | Foundational types, config, and shared utilities |
+| `engines` | Cognitive processing: memory consolidation, FSRS, graph traversal |
+| `stores` | Persistence layer — SQLite (local) and Firestore (cloud) |
+| `mcp` | MCP server and tool definitions |
+| `cognitive` | Higher-order cognitive operations (dream, wander, validate) |
+| `triggers` | Scheduled and event-driven triggers |
+| `bridges` | Adapters for external services and APIs |
+| `providers` | Embedding provider implementations |
+| `bin` | Entry points: `serve.js` (HTTP + MCP), `cli.js` (admin CLI) |
 
-## What's Included
-
-### Hooks
-
-| Hook | Event | Purpose |
-|------|-------|---------|
-| `cognitive-grounding.sh` | UserPromptSubmit | Reminds agent to call `query()` before evaluation/design/review work |
-| `observe-first.sh` | PreToolUse (Write/Edit) | Reminds agent to call `observe()` before writing to memory directories |
-| `cortex-telemetry.sh` | PostToolUse | Tracks cortex retrieval tool calls; sends retry signals to cortex API |
-| `session-lifecycle.sh` | SessionStart | Clears telemetry state for each new session |
-
-### Hookify Rules
-
-| Rule | Strength | Trigger |
-|------|----------|---------|
-| `hookify.cognitive-grounding.local.md` | enforce | Prompts involving evaluation/design/review |
-| `hookify.observe-first.local.md` | enforce | Writes to Mind/Journal/memory directories |
-| `hookify.note-about-doing.local.md` | nudge | "I should / I need to / I want to" patterns |
-
-### Skills
-
-- `cortex-query` — Best practices for querying cortex: specificity, timing, anti-patterns
-- `cortex-review` — Review workflow grounded in cortex memory; structured output format
-
-### Agents
-
-- `cortex-researcher` — Deep research agent that queries cortex before external sources
-
-## Configuration
-
-Set these environment variables for full functionality:
+## Getting Started
 
 ```bash
-CORTEX_API_URL=https://your-cortex-instance.run.app
-CORTEX_API_TOKEN=your-token-here
+git clone https://github.com/fozikio/cortex-engine.git
+cd cortex-engine
+npm install
+npm run build
+npm run serve
 ```
 
-The telemetry hook uses these to send retry signals back to the cortex API. Hooks work without them — telemetry is fire-and-forget.
+Requires Node.js 20 or later.
 
-### Registering Hooks
-
-After installation, register the hooks in your project's `.claude/settings.json`:
-
-```json
-{
-  "hooks": {
-    "UserPromptSubmit": [
-      { "hooks": [{ "type": "command", "command": "bash .claude/hooks/cognitive-grounding.sh" }] }
-    ],
-    "PreToolUse": [
-      {
-        "matcher": "Write|Edit",
-        "hooks": [{ "type": "command", "command": "bash .claude/hooks/observe-first.sh" }]
-      }
-    ],
-    "PostToolUse": [
-      { "hooks": [{ "type": "command", "command": "bash .claude/hooks/cortex-telemetry.sh" }] }
-    ],
-    "SessionStart": [
-      { "hooks": [{ "type": "command", "command": "bash .claude/hooks/session-lifecycle.sh" }] }
-    ]
-  }
-}
-```
-
-## Updating
-
-Since setup.sh uses symlinks for hooks and skills, updating is just a `git pull`:
+### Development
 
 ```bash
-cd /path/to/cortex-kit
-git pull
+npm run dev       # tsc --watch
+npm test          # vitest run
+npm run test:watch
 ```
 
-On Windows (copies rather than symlinks), re-run setup.ps1 after pulling.
+## Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `CORTEX_API_TOKEN` | Yes | Authentication token for the HTTP API |
+
+Additional variables are required depending on which providers you enable (Firestore, Vertex AI, OpenAI, etc.). See `docs/` for provider-specific configuration.
+
+## Related Projects
+
+- [idapixl/idapixl-cortex](https://github.com/idapixl/idapixl-cortex) — private production instance of cortex-engine, deployed on Cloud Run
+- [fozikio/dashboard](https://github.com/fozikio/dashboard) — agent workspace dashboard backed by cortex-engine
 
 ## License
 

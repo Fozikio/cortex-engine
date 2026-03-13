@@ -546,6 +546,11 @@ export class FirestoreCortexStore implements CortexStore {
     return { id: snap.id, ...snap.data() } as Record<string, unknown>;
   }
 
+  async update(collection: string, id: string, updates: Record<string, unknown>): Promise<void> {
+    const { id: _id, ...rest } = updates;
+    await this.col(collection).doc(id).update(rest);
+  }
+
   async query(
     collection: string,
     filters: QueryFilter[],

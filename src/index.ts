@@ -91,8 +91,13 @@ export type { FirestoreStoreOptions } from './stores/firestore.js';
 export { ScopedStore } from './namespace/scoped-store.js';
 export { NamespaceManager } from './namespace/manager.js';
 
-// Providers
+// Providers — only always-available providers are re-exported as values.
+// Vertex providers use optional peer deps and must be imported directly
+// from 'cortex-engine/providers/vertex-embed' or 'cortex-engine/providers/vertex-llm'
+// to avoid breaking consumers who don't install @google-cloud/*.
 export { OllamaEmbedProvider, OllamaLLMProvider } from './providers/ollama.js';
+export type { VertexEmbedOptions, VertexEmbedTaskType } from './providers/vertex-embed.js';
+export type { VertexLLMOptions } from './providers/vertex-llm.js';
 export { LocalNLIProvider, nliToCortexVerdict } from './providers/nli-http.js';
 
 // Triggers
@@ -110,4 +115,7 @@ export type { BridgeContext, BridgeResult } from './bridges/bridge.js';
 // MCP server
 export { createServer, startServer } from './mcp/server.js';
 export { createTools, CORE_TOOLS } from './mcp/tools.js';
-export type { ToolDefinition, ToolContext } from './mcp/tools.js';
+export type { ToolDefinition, ToolContext, ToolPlugin } from './mcp/tools.js';
+
+// Plugins
+export { loadPlugins } from './plugins/loader.js';

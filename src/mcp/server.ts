@@ -19,17 +19,25 @@ import { BridgeRegistry } from '../bridges/registry.js';
 import { SqliteCortexStore } from '../stores/sqlite.js';
 import { FirestoreCortexStore } from '../stores/firestore.js';
 import { OllamaEmbedProvider, OllamaLLMProvider } from '../providers/ollama.js';
+import type { EmbedProvider } from '../core/embed.js';
+import type { LLMProvider } from '../core/llm.js';
 import { createTools, CORE_TOOLS } from './tools.js';
 import type { ToolContext } from './tools.js';
+import { loadPlugins } from '../plugins/loader.js';
 
 // ─── Server Factory ───────────────────────────────────────────────────────────
 
 export async function createServer(config: CortexConfig): Promise<Server> {
-  // 1. Create providers based on config
-  const embed = createEmbedProvider(config);
-  const llm = createLLMProvider(config);
+  // 1. Create providers based on config (async — vertex uses dynamic imports)
+  const embed = await createEmbedProvider(config);
+  const llm = await createLLMProvider(config);
 
-  // 2. Create namespace manager with store factory
+  // 2. Pre-initialize store backend (async for Firestore dynamic import)
+  const firestoreDb = config.store === 'firestore'
+    ? await initFirestoreDb(config)
+    : null;
+
+  // 3. Create namespace manager with store factory
   const namespaces = new NamespaceManager(config, (_namespace, prefix) => {
     if (config.store === 'sqlite') {
       return new SqliteCortexStore(
@@ -38,16 +46,16 @@ export async function createServer(config: CortexConfig): Promise<Server> {
       );
     }
     if (config.store === 'firestore') {
-      return createFirestoreStore(config, prefix);
+      return new FirestoreCortexStore(firestoreDb!, prefix);
     }
     throw new Error(`Unsupported store: ${config.store}`);
   });
 
-  // 3. Create registries
+  // 4. Create registries
   const triggers = new TriggerRegistry(config.namespaces);
   const bridges = new BridgeRegistry(config.bridges ?? []);
 
-  // 4. Create session (auto-detect model)
+  // 5. Create session (auto-detect model)
   const detected = Session.detectModel();
   const provenanceConfig = config.model_provenance ?? {
     default_model: 'unknown',
@@ -62,18 +70,27 @@ export async function createServer(config: CortexConfig): Promise<Server> {
     provenanceConfig,
   );
 
-  // 5. Build tool context
-  const ctx: ToolContext = { namespaces, embed, llm, session, triggers, bridges };
+  // 6. Load plugins and merge with core tools
+  const coreTools = createTools();
+  const coreToolNames = new Set(coreTools.map(t => t.name));
+  const pluginTools = await loadPlugins(config.plugins ?? [], coreToolNames);
+  const allTools = [...coreTools, ...pluginTools];
 
-  // 6. Get all tools and filter by config + core
-  const allTools = createTools();
+  // 7. Build tool context (includes allTools for trigger/bridge pipelines)
+  const ctx: ToolContext = { namespaces, embed, llm, session, triggers, bridges, allTools };
+
+  // 8. Filter active tools by namespace config + core set
   const activeToolNames = namespaces.getActiveTools();
   for (const t of CORE_TOOLS) {
     activeToolNames.add(t);
   }
+  // Plugin tools are always active (not gated by namespace config)
+  for (const t of pluginTools) {
+    activeToolNames.add(t.name);
+  }
   const activeTools = allTools.filter(t => activeToolNames.has(t.name));
 
-  // 7. Create MCP server
+  // 9. Create MCP server
   const server = new Server(
     { name: 'cortex-engine', version: '0.1.0' },
     { capabilities: { tools: {} } },
@@ -128,46 +145,74 @@ export async function startServer(config: CortexConfig): Promise<void> {
 
 // ─── Provider Factories ───────────────────────────────────────────────────────
 
-// Firestore store factory — lazy-loads firebase-admin to avoid import errors
-// when running in SQLite-only mode.
-let _firestoreDb: import('@google-cloud/firestore').Firestore | null = null;
-function createFirestoreStore(config: CortexConfig, prefix: string): FirestoreCortexStore {
-  if (!_firestoreDb) {
-    // Dynamic imports to avoid loading firebase-admin when using SQLite
-    const { getApps, initializeApp } = require('firebase-admin/app') as typeof import('firebase-admin/app');
-    if (getApps().length === 0) {
-      initializeApp({
-        projectId: config.store_options?.gcp_project_id,
-      });
-    }
-    const { getFirestore } = require('firebase-admin/firestore') as typeof import('firebase-admin/firestore');
-    _firestoreDb = config.store_options?.firestore_database_id
-      ? getFirestore(config.store_options.firestore_database_id)
-      : getFirestore();
-    _firestoreDb.settings({ ignoreUndefinedProperties: true });
+// Firestore DB init — lazy-loads firebase-admin via dynamic import() to avoid
+// requiring the SDK when running in SQLite-only mode.
+async function initFirestoreDb(config: CortexConfig): Promise<import('@google-cloud/firestore').Firestore> {
+  const { getApps, initializeApp } = await import('firebase-admin/app');
+  if (getApps().length === 0) {
+    initializeApp({
+      projectId: config.store_options?.gcp_project_id,
+    });
   }
-  return new FirestoreCortexStore(_firestoreDb, prefix);
+  const { getFirestore } = await import('firebase-admin/firestore');
+  const db = config.store_options?.firestore_database_id
+    ? getFirestore(config.store_options.firestore_database_id)
+    : getFirestore();
+  db.settings({ ignoreUndefinedProperties: true });
+  return db;
 }
 
-function createEmbedProvider(config: CortexConfig): OllamaEmbedProvider {
+async function createEmbedProvider(config: CortexConfig): Promise<EmbedProvider> {
   switch (config.embed) {
     case 'ollama':
       return new OllamaEmbedProvider({
         model: config.embed_options?.ollama_model,
         baseUrl: config.embed_options?.ollama_url,
       });
+    case 'vertex': {
+      const { PredictionServiceClient, helpers } = await import('@google-cloud/aiplatform');
+      const { VertexEmbedProvider } = await import('../providers/vertex-embed.js');
+      const location = config.embed_options?.vertex_location ?? 'us-central1';
+      const client = new PredictionServiceClient({
+        apiEndpoint: `${location}-aiplatform.googleapis.com`,
+      });
+      return new VertexEmbedProvider(
+        {
+          projectId: config.store_options?.gcp_project_id,
+          location,
+          model: config.embed_options?.vertex_model,
+        },
+        client,
+        helpers,
+      );
+    }
     default:
       throw new Error(`Embed provider "${config.embed}" not yet implemented in this build`);
   }
 }
 
-function createLLMProvider(config: CortexConfig): OllamaLLMProvider {
+async function createLLMProvider(config: CortexConfig): Promise<LLMProvider> {
   switch (config.llm) {
     case 'ollama':
       return new OllamaLLMProvider({
         model: config.llm_options?.ollama_model,
         baseUrl: config.llm_options?.ollama_url,
       });
+    case 'gemini': {
+      const { VertexAI } = await import('@google-cloud/vertexai');
+      const { VertexLLMProvider } = await import('../providers/vertex-llm.js');
+      const projectId = config.store_options?.gcp_project_id ?? process.env['GOOGLE_CLOUD_PROJECT'] ?? '';
+      const location = config.llm_options?.vertex_location ?? 'us-central1';
+      const vertexAI = new VertexAI({ project: projectId, location });
+      return new VertexLLMProvider(
+        {
+          projectId,
+          location,
+          model: config.llm_options?.gemini_model,
+        },
+        vertexAI,
+      );
+    }
     default:
       throw new Error(`LLM provider "${config.llm}" not yet implemented in this build`);
   }

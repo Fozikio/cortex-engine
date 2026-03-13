@@ -16,10 +16,20 @@
  *   --obsidian   Create .obsidian/ structure
  */
 
-import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
-import { resolve, join } from 'node:path';
+import { mkdirSync, writeFileSync, existsSync, readFileSync, cpSync, readdirSync, chmodSync } from 'node:fs';
+import { resolve, join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
+
+interface KitManifest {
+  contents?: {
+    hooks?: string[];
+    hookify_rules?: string[];
+    skills?: string[];
+    agents?: string[];
+  };
+}
 
 type StoreOption = 'sqlite' | 'firestore';
 type EmbedOption = 'ollama' | 'vertex' | 'openai';
@@ -182,6 +192,23 @@ At session end, run dream to consolidate:
 \`\`\`
 dream()
 \`\`\`
+
+## Installed Hooks
+
+Cortex-kit hooks are installed in \`.claude/hooks/\`. They fire automatically:
+
+- **cognitive-grounding** — reminds you to \`query()\` before evaluation/design/review work
+- **observe-first** — warns before writing to memory directories without \`observe()\`/\`query()\`
+- **cortex-telemetry** — tracks retrieval patterns for quality feedback
+- **session-lifecycle** — resets session state on startup
+- **project-board-gate** — gates \`git push\` on board updates (configure via \`.claude/state/project-boards.json\`)
+
+To disable any hook, delete its \`.sh\` file from \`.claude/hooks/\`.
+
+## Installed Skills
+
+- **/cortex-query** — best practices for querying cortex memory
+- **/cortex-review** — structured review workflow grounded in cortex context
 `;
 
 const OBSIDIAN_APP_JSON = `{
@@ -196,6 +223,89 @@ const OBSIDIAN_APPEARANCE_JSON = `{
   "theme": "obsidian"
 }
 `;
+
+// ─── Manifest & Asset Installation ────────────────────────────────────────
+
+/** Resolve the package root (where cortex-kit.json lives). */
+function getPackageRoot(): string {
+  const thisFile = fileURLToPath(import.meta.url);
+  // dist/bin/init.js → package root (two levels up)
+  return resolve(dirname(thisFile), '..', '..');
+}
+
+function loadManifest(packageRoot: string): KitManifest | null {
+  const manifestPath = join(packageRoot, 'cortex-kit.json');
+  if (!existsSync(manifestPath)) {
+    console.error('[cortex-kit] Warning: cortex-kit.json not found — skipping hook/skill installation.');
+    return null;
+  }
+  try {
+    return JSON.parse(readFileSync(manifestPath, 'utf-8')) as KitManifest;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[cortex-kit] Warning: Failed to parse cortex-kit.json: ${msg} — skipping hook/skill installation.`);
+    return null;
+  }
+}
+
+function installHooks(packageRoot: string, targetDir: string, hooks: string[]): string[] {
+  const sourceDir = join(packageRoot, 'hooks');
+  const destDir = join(targetDir, '.claude', 'hooks');
+  const installed: string[] = [];
+
+  if (!existsSync(sourceDir)) {
+    console.error('[cortex-kit] Warning: hooks/ directory not found in package — skipping hook installation.');
+    return installed;
+  }
+
+  mkdirSync(destDir, { recursive: true });
+
+  for (const hook of hooks) {
+    const hookFile = `${hook}.sh`;
+    const src = join(sourceDir, hookFile);
+    if (!existsSync(src)) {
+      console.error(`[cortex-kit] Warning: hook not found: ${hookFile} — skipping.`);
+      continue;
+    }
+    const dest = join(destDir, hookFile);
+    cpSync(src, dest);
+    // Set execute bit on Unix (no-op failure on Windows is fine)
+    try { chmodSync(dest, 0o755); } catch { /* Windows — no execute bit */ }
+    installed.push(hookFile);
+  }
+
+  return installed;
+}
+
+function installSkills(packageRoot: string, targetDir: string, skills: string[]): string[] {
+  const sourceDir = join(packageRoot, 'skills');
+  const destDir = join(targetDir, '.claude', 'skills');
+  const installed: string[] = [];
+
+  if (!existsSync(sourceDir)) {
+    console.error('[cortex-kit] Warning: skills/ directory not found in package — skipping skill installation.');
+    return installed;
+  }
+
+  mkdirSync(destDir, { recursive: true });
+
+  for (const skill of skills) {
+    const src = join(sourceDir, skill);
+    if (!existsSync(src)) {
+      console.error(`[cortex-kit] Warning: skill not found: ${skill}/ — skipping.`);
+      continue;
+    }
+    const dest = join(destDir, skill);
+    mkdirSync(dest, { recursive: true });
+    // Copy all files in the skill directory
+    for (const file of readdirSync(src)) {
+      cpSync(join(src, file), join(dest, file));
+    }
+    installed.push(skill);
+  }
+
+  return installed;
+}
 
 // ─── Scaffold ──────────────────────────────────────────────────────────────
 
@@ -240,6 +350,23 @@ export function runInit(args: string[]): void {
     writeFileSync(join(obsidianDir, 'appearance.json'), OBSIDIAN_APPEARANCE_JSON, 'utf-8');
   }
 
+  // Install hooks and skills from manifest
+  const packageRoot = getPackageRoot();
+  const manifest = loadManifest(packageRoot);
+  const installedHooks: string[] = [];
+  const installedSkills: string[] = [];
+  let hasHookifyRules = false;
+
+  if (manifest?.contents) {
+    if (manifest.contents.hooks && manifest.contents.hooks.length > 0) {
+      installedHooks.push(...installHooks(packageRoot, targetDir, manifest.contents.hooks));
+    }
+    if (manifest.contents.skills && manifest.contents.skills.length > 0) {
+      installedSkills.push(...installSkills(packageRoot, targetDir, manifest.contents.skills));
+    }
+    hasHookifyRules = (manifest.contents.hookify_rules ?? []).length > 0;
+  }
+
   // Success message
   const relativePath = opts.here ? '.' : opts.name;
   console.error(`[cortex-kit] Workspace scaffolded at: ${targetDir}`);
@@ -252,6 +379,24 @@ export function runInit(args: string[]): void {
   if (opts.obsidian) {
     console.error(`  ${relativePath}/.obsidian/app.json`);
     console.error(`  ${relativePath}/.obsidian/appearance.json`);
+  }
+  if (installedHooks.length > 0) {
+    console.error('');
+    console.error('Hooks installed:');
+    for (const hook of installedHooks) {
+      console.error(`  ${relativePath}/.claude/hooks/${hook}`);
+    }
+  }
+  if (installedSkills.length > 0) {
+    console.error('');
+    console.error('Skills installed:');
+    for (const skill of installedSkills) {
+      console.error(`  ${relativePath}/.claude/skills/${skill}/`);
+    }
+  }
+  if (hasHookifyRules) {
+    console.error('');
+    console.error('Recommended hookify rules available. Run `cortex-kit install-rules` to install.');
   }
   console.error('');
   console.error('Next steps:');

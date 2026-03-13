@@ -28,6 +28,7 @@
     "@anthropic-ai/sdk": "^0.39.0",
     "@google-cloud/aiplatform": "^3.12.0",
     "@google-cloud/firestore": "^7.11.0",
+    "@google-cloud/vertexai": "^1.9.0",
     "firebase-admin": "^13.0.0",
     "openai": "^4.77.0"
   },
@@ -35,6 +36,7 @@
     "@anthropic-ai/sdk": { "optional": true },
     "@google-cloud/aiplatform": { "optional": true },
     "@google-cloud/firestore": { "optional": true },
+    "@google-cloud/vertexai": { "optional": true },
     "firebase-admin": { "optional": true },
     "openai": { "optional": true }
   },
@@ -42,6 +44,7 @@
     "@anthropic-ai/sdk": "^0.39.0",
     "@google-cloud/aiplatform": "^3.12.0",
     "@google-cloud/firestore": "^7.11.0",
+    "@google-cloud/vertexai": "^1.9.0",
     "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^22.10.0",
     "firebase-admin": "^13.0.0",

@@ -79,6 +79,9 @@ export interface CortexConfig {
   /** Model provenance tracking config. */
   model_provenance?: ModelProvenanceConfig;
 
+  /** Plugin packages to load (npm package names or local paths). */
+  plugins?: string[];
+
   /** Benchmark/research mode config. */
   benchmark?: BenchmarkConfig;
 
@@ -100,6 +103,8 @@ export interface CortexConfig {
     ollama_url?: string;
     /** Vertex AI: model name (default: text-embedding-004) */
     vertex_model?: string;
+    /** Vertex AI: GCP region (default: us-central1) */
+    vertex_location?: string;
     /** OpenAI: model name (default: text-embedding-3-small) */
     openai_model?: string;
   };
@@ -112,6 +117,8 @@ export interface CortexConfig {
     ollama_url?: string;
     /** Gemini: model name (default: gemini-2.5-flash) */
     gemini_model?: string;
+    /** Vertex AI / Gemini: GCP region (default: us-central1) */
+    vertex_location?: string;
     /** Anthropic: model name (default: claude-sonnet-4-6) */
     anthropic_model?: string;
     /** OpenAI: model name (default: gpt-4o) */

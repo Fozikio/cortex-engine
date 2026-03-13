@@ -10,7 +10,7 @@
  */
 
 import type { Firestore, CollectionReference, DocumentData } from '@google-cloud/firestore';
-import { FieldValue, Timestamp } from '@google-cloud/firestore';
+import { FieldValue } from '@google-cloud/firestore';
 import type { CortexStore } from '../core/store.js';
 import type {
   Memory,
@@ -29,10 +29,10 @@ import type {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-/** Convert a JS Date to Firestore Timestamp. */
-function toTimestamp(d: Date | undefined | null): Timestamp {
-  if (!d) return Timestamp.now();
-  return Timestamp.fromDate(d instanceof Date ? d : new Date(String(d)));
+/** Convert a JS Date to a plain Date for Firestore (Firestore accepts Date objects natively). */
+function toTimestamp(d: Date | undefined | null): Date {
+  if (!d) return new Date();
+  return d instanceof Date ? d : new Date(String(d));
 }
 
 /** Convert a Firestore Timestamp to JS Date. */

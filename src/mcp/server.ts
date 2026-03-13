@@ -32,7 +32,12 @@ export async function createServer(config: CortexConfig): Promise<Server> {
   const embed = await createEmbedProvider(config);
   const llm = await createLLMProvider(config);
 
-  // 2. Create namespace manager with store factory
+  // 2. Pre-initialize store backend (async for Firestore dynamic import)
+  const firestoreDb = config.store === 'firestore'
+    ? await initFirestoreDb(config)
+    : null;
+
+  // 3. Create namespace manager with store factory
   const namespaces = new NamespaceManager(config, (_namespace, prefix) => {
     if (config.store === 'sqlite') {
       return new SqliteCortexStore(
@@ -41,16 +46,16 @@ export async function createServer(config: CortexConfig): Promise<Server> {
       );
     }
     if (config.store === 'firestore') {
-      return createFirestoreStore(config, prefix);
+      return new FirestoreCortexStore(firestoreDb!, prefix);
     }
     throw new Error(`Unsupported store: ${config.store}`);
   });
 
-  // 3. Create registries
+  // 4. Create registries
   const triggers = new TriggerRegistry(config.namespaces);
   const bridges = new BridgeRegistry(config.bridges ?? []);
 
-  // 4. Create session (auto-detect model)
+  // 5. Create session (auto-detect model)
   const detected = Session.detectModel();
   const provenanceConfig = config.model_provenance ?? {
     default_model: 'unknown',
@@ -65,16 +70,16 @@ export async function createServer(config: CortexConfig): Promise<Server> {
     provenanceConfig,
   );
 
-  // 5. Load plugins and merge with core tools
+  // 6. Load plugins and merge with core tools
   const coreTools = createTools();
   const coreToolNames = new Set(coreTools.map(t => t.name));
   const pluginTools = await loadPlugins(config.plugins ?? [], coreToolNames);
   const allTools = [...coreTools, ...pluginTools];
 
-  // 6. Build tool context (includes allTools for trigger/bridge pipelines)
+  // 7. Build tool context (includes allTools for trigger/bridge pipelines)
   const ctx: ToolContext = { namespaces, embed, llm, session, triggers, bridges, allTools };
 
-  // 7. Filter active tools by namespace config + core set
+  // 8. Filter active tools by namespace config + core set
   const activeToolNames = namespaces.getActiveTools();
   for (const t of CORE_TOOLS) {
     activeToolNames.add(t);
@@ -85,7 +90,7 @@ export async function createServer(config: CortexConfig): Promise<Server> {
   }
   const activeTools = allTools.filter(t => activeToolNames.has(t.name));
 
-  // 8. Create MCP server
+  // 9. Create MCP server
   const server = new Server(
     { name: 'cortex-engine', version: '0.1.0' },
     { capabilities: { tools: {} } },
@@ -140,25 +145,21 @@ export async function startServer(config: CortexConfig): Promise<void> {
 
 // ─── Provider Factories ───────────────────────────────────────────────────────
 
-// Firestore store factory — lazy-loads firebase-admin to avoid import errors
-// when running in SQLite-only mode.
-let _firestoreDb: import('@google-cloud/firestore').Firestore | null = null;
-function createFirestoreStore(config: CortexConfig, prefix: string): FirestoreCortexStore {
-  if (!_firestoreDb) {
-    // Dynamic imports to avoid loading firebase-admin when using SQLite
-    const { getApps, initializeApp } = require('firebase-admin/app') as typeof import('firebase-admin/app');
-    if (getApps().length === 0) {
-      initializeApp({
-        projectId: config.store_options?.gcp_project_id,
-      });
-    }
-    const { getFirestore } = require('firebase-admin/firestore') as typeof import('firebase-admin/firestore');
-    _firestoreDb = config.store_options?.firestore_database_id
-      ? getFirestore(config.store_options.firestore_database_id)
-      : getFirestore();
-    _firestoreDb.settings({ ignoreUndefinedProperties: true });
+// Firestore DB init — lazy-loads firebase-admin via dynamic import() to avoid
+// requiring the SDK when running in SQLite-only mode.
+async function initFirestoreDb(config: CortexConfig): Promise<import('@google-cloud/firestore').Firestore> {
+  const { getApps, initializeApp } = await import('firebase-admin/app');
+  if (getApps().length === 0) {
+    initializeApp({
+      projectId: config.store_options?.gcp_project_id,
+    });
   }
-  return new FirestoreCortexStore(_firestoreDb, prefix);
+  const { getFirestore } = await import('firebase-admin/firestore');
+  const db = config.store_options?.firestore_database_id
+    ? getFirestore(config.store_options.firestore_database_id)
+    : getFirestore();
+  db.settings({ ignoreUndefinedProperties: true });
+  return db;
 }
 
 async function createEmbedProvider(config: CortexConfig): Promise<EmbedProvider> {

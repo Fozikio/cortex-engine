@@ -309,6 +309,7 @@ async function createFromUnclustered(
         embedding,
         tags: obs.keywords.length > 0 ? obs.keywords : extractKeywords(obs.content),
         fsrs: newFSRSState(),
+        memory_origin: 'dream',
       });
 
       await store.markObservationProcessed(obs.id);
@@ -431,13 +432,52 @@ async function scoreMemories(
     (m) => m.fsrs.state === 'review' || m.fsrs.state === 'learning' || m.fsrs.state === 'relearning',
   );
 
+  // Batch-fetch edges for contradiction detection
+  const reviewableIds = reviewable.map((m) => m.id);
+  let contradictionSet: Set<string> = new Set();
+  try {
+    const edges = await store.getEdgesForMemories(reviewableIds);
+    for (const edge of edges) {
+      if (edge.relation === 'contradicts' || edge.relation === 'tensions-with') {
+        contradictionSet.add(edge.source_id);
+        contradictionSet.add(edge.target_id);
+      }
+    }
+  } catch {
+    // Edge fetch failed — proceed without contradiction signal
+  }
+
   for (const memory of reviewable) {
     try {
       const elapsed = elapsedDaysSince(memory.fsrs.last_review);
       // Relearning memories use stricter 1-day window (already lapsed once)
       const accessWindow = memory.fsrs.state === 'relearning' ? oneDayAgo : threeDaysAgo;
       const recentlyAccessed = memory.last_accessed.getTime() >= accessWindow;
-      const rating: 2 | 3 = recentlyAccessed ? 3 : 2;
+
+      // Composite rating: base + retrieval quality signals
+      let rating: 1 | 2 | 3 | 4 = recentlyAccessed ? 3 : 2;
+
+      // Boost: direct, high-confidence retrieval → Easy
+      if (
+        memory.last_retrieval_score !== undefined &&
+        memory.last_retrieval_score > 0.92 &&
+        (memory.last_hop_count === undefined || memory.last_hop_count === 0)
+      ) {
+        rating = Math.min(4, rating + 1) as 1 | 2 | 3 | 4;
+      }
+
+      // Penalize: weak or indirect retrieval → harder
+      if (
+        (memory.last_retrieval_score !== undefined && memory.last_retrieval_score < 0.75) ||
+        (memory.last_hop_count !== undefined && memory.last_hop_count > 0)
+      ) {
+        rating = Math.max(1, rating - 1) as 1 | 2 | 3 | 4;
+      }
+
+      // Penalize: contradicted memories are harder to retrieve correctly
+      if (contradictionSet.has(memory.id)) {
+        rating = Math.max(1, rating - 1) as 1 | 2 | 3 | 4;
+      }
 
       const scheduled = scheduleNext(memory.fsrs, rating, elapsed);
 
@@ -551,6 +591,7 @@ async function abstractCrossDomain(
         embedding: abstEmbedding,
         tags: extractKeywords(trimmed),
         fsrs: newFSRSState(),
+        memory_origin: 'abstract',
       });
 
       abstractions++;

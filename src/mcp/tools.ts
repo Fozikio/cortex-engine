@@ -197,8 +197,12 @@ const queryTool: ToolDefinition = {
           ? retrievability(memory.fsrs.stability, daysSince)
           : r.score;
 
-        // Touch the memory (update access count + last_accessed)
+        // Touch the memory (update access count + last_accessed) and store retrieval metadata
         await store.touchMemory(r.memory.id, {});
+        await store.updateMemory(r.memory.id, {
+          last_retrieval_score: r.score,
+          last_hop_count: r.hop_count,
+        });
 
         return {
           id: r.memory.id,

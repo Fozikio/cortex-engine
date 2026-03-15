@@ -46,6 +46,12 @@ export interface Memory {
   faded?: boolean;
   salience_original?: number;
   provenance?: ModelProvenance;
+  /** Last retrieval cosine similarity score (0-1). Set by touchMemory. */
+  last_retrieval_score?: number;
+  /** Last retrieval hop count (0 = direct match). Set by touchMemory. */
+  last_hop_count?: number;
+  /** Memory origin for differentiated FSRS initialization. */
+  memory_origin?: 'organic' | 'dream' | 'abstract';
 }
 
 export interface MemorySummary {

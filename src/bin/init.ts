@@ -277,6 +277,65 @@ Read before you write. Tool descriptions tell you the rest.
 | \`dream\` | Consolidate observations into long-term memories (run periodically) |
 `;
 
+const HOOK_DESCRIPTIONS: Record<string, [string, string]> = {
+  'cognitive-grounding.sh': ['UserPromptSubmit', 'Nudges you to query() before evaluation, design, review, or creation work'],
+  'observe-first.sh': ['PreToolUse (Write/Edit)', 'Warns if writing to memory directories without calling observe() or query() first'],
+  'cortex-telemetry.sh': ['PostToolUse', 'Tracks cortex retrieval calls; detects retries and sends feedback to the cortex API'],
+  'session-lifecycle.sh': ['SessionStart', 'Resets session-scoped state files (telemetry log, push-gate state)'],
+  'project-board-gate.sh': ['PreToolUse (Bash)', 'Blocks git push until board updates and ops logging requirements are met'],
+};
+
+const SKILL_DESCRIPTIONS: Record<string, string> = {
+  'cortex-query': 'Best practices for querying cortex — specificity, keyword mode, neighbor exploration, anti-patterns',
+  'cortex-review': 'Structured review workflow that grounds feedback in cortex memory',
+};
+
+function buildClaudeMd(installedHooks: string[], installedSkills: string[]): string {
+  let content = COGNITIVE_TOOLS_REFERENCE;
+
+  if (installedHooks.length > 0) {
+    content += `\n## Installed Hooks\n\nThese hooks fire automatically — no action needed. Source files are in \`.claude/hooks/\`.\n\n`;
+    content += `| Hook | Event | Purpose |\n|------|-------|---------|\n`;
+    for (const hook of installedHooks) {
+      const [event, purpose] = HOOK_DESCRIPTIONS[hook] ?? ['—', hook];
+      content += `| \`${hook}\` | ${event} | ${purpose} |\n`;
+    }
+  }
+
+  if (installedSkills.length > 0) {
+    content += `\n## Installed Skills\n\nInvoke with \`/<skill-name>\` in your prompt. Source files are in \`.claude/skills/\`.\n\n`;
+    content += `| Skill | Purpose |\n|-------|---------|\n`;
+    for (const skill of installedSkills) {
+      const purpose = SKILL_DESCRIPTIONS[skill] ?? skill;
+      content += `| \`${skill}\` | ${purpose} |\n`;
+    }
+  }
+
+  return content;
+}
+
+function buildAgentsMd(name: string): string {
+  return `# Agents
+
+This workspace belongs to **${name}**.
+
+## Roster
+
+| Agent | Description | Namespace |
+|-------|-------------|-----------|
+| ${name} | *(primary)* | default |
+
+## Adding Agents
+
+\`\`\`bash
+npx fozikio agent add <name> --description "..."
+npx fozikio agent generate-mcp   # regenerate .mcp.json with scoped servers
+\`\`\`
+
+Each agent gets an isolated memory namespace. See \`.fozikio/agent.yaml\` for configuration.
+`;
+}
+
 const OBSIDIAN_APP_JSON = `{
   "legacyEditor": false,
   "livePreview": true,
@@ -433,12 +492,6 @@ export function runInit(args: string[]): void {
   // .mcp.json
   writeFileSync(join(targetDir, '.mcp.json'), MCP_JSON, 'utf-8');
 
-  // CLAUDE.md
-  writeFileSync(join(targetDir, 'CLAUDE.md'), COGNITIVE_TOOLS_REFERENCE, 'utf-8');
-
-  // AGENTS.md
-  writeFileSync(join(targetDir, 'AGENTS.md'), COGNITIVE_TOOLS_REFERENCE, 'utf-8');
-
   // .obsidian/
   if (opts.obsidian) {
     const obsidianDir = join(targetDir, '.obsidian');
@@ -447,7 +500,7 @@ export function runInit(args: string[]): void {
     writeFileSync(join(obsidianDir, 'appearance.json'), OBSIDIAN_APPEARANCE_JSON, 'utf-8');
   }
 
-  // Install hooks and skills from manifest
+  // Install hooks and skills from manifest (must happen before writing CLAUDE.md)
   const packageRoot = getPackageRoot();
   const manifest = loadManifest(packageRoot);
   const installedHooks: string[] = [];
@@ -463,6 +516,12 @@ export function runInit(args: string[]): void {
     }
     hasHookifyRules = (manifest.contents.hookify_rules ?? []).length > 0;
   }
+
+  // CLAUDE.md — written after hooks/skills so it can list them
+  writeFileSync(join(targetDir, 'CLAUDE.md'), buildClaudeMd(installedHooks, installedSkills), 'utf-8');
+
+  // AGENTS.md — agent roster (not a duplicate of CLAUDE.md)
+  writeFileSync(join(targetDir, 'AGENTS.md'), buildAgentsMd(opts.name), 'utf-8');
 
   // Success message
   const relativePath = opts.here ? '.' : opts.name;
@@ -507,7 +566,8 @@ export function runInit(args: string[]): void {
   if (!opts.here) {
     console.error(`  cd ${opts.name}`);
   }
-  console.error(`  # Edit .fozikio/agent.yaml to configure your store and providers`);
-  console.error(`  # Add cortex to your MCP client using .mcp.json`);
-  console.error(`  npx cortex-engine   # start the MCP server`);
+  console.error(`  npx cortex-engine          # start the MCP server (stdio)`);
+  console.error(`  # .mcp.json is ready — Claude Code picks it up automatically`);
+  console.error(`  # Read CLAUDE.md for tool reference and installed hooks/skills`);
+  console.error(`  # Edit .fozikio/agent.yaml to change store or embedding provider`);
 }

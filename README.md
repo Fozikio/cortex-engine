@@ -11,7 +11,7 @@ Most AI agents forget everything when the session ends. `cortex-engine` fixes th
 - **Dream consolidation** — batches of short-term observations compress into durable long-term memories (like biological sleep consolidation)
 - **Spaced repetition (FSRS)** — memories that aren't accessed fade over time, keeping retrieval relevant
 - **Embeddings** — pluggable providers (built-in, OpenAI, Vertex AI, Ollama) — no external service required by default
-- **MCP server** — 17 cognitive tools (`query`, `observe`, `believe`, `wander`, `dream`, etc.) over the Model Context Protocol
+- **MCP server** — 25 cognitive tools (`query`, `observe`, `believe`, `wander`, `dream`, etc.) over the Model Context Protocol
 
 The result: personality and expertise emerge from accumulated experience, not system prompts. An agent with 200 observations about distributed systems doesn't need to be told "you care about distributed systems." It just knows.
 
@@ -40,7 +40,7 @@ cd my-agent
 npx cortex-engine   # starts MCP server
 ```
 
-Your agent now has 17 cognitive tools. See **[docs/quick-start.md](docs/quick-start.md)** for the full 5-minute setup.
+Your agent now has 25 cognitive tools. See **[docs/quick-start.md](docs/quick-start.md)** for the full 5-minute setup.
 
 ### Multi-Agent
 
@@ -115,7 +115,7 @@ Skills are invocable workflows that agents can use via `/skill-name`.
 
 ## Plugin Ecosystem
 
-cortex-engine ships with 17 cognitive tools out of the box. Plugins add more:
+cortex-engine ships with 25 cognitive tools out of the box. Plugins add more:
 
 | Plugin | What It Adds |
 |--------|-------------|

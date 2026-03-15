@@ -120,3 +120,13 @@ export type { ToolDefinition, ToolContext, ToolPlugin } from './mcp/tools.js';
 
 // Plugins
 export { loadPlugins } from './plugins/loader.js';
+
+// Built-in tools (threads, journal, evolution)
+export { threadCreateTool } from './tools/thread-create.js';
+export { threadUpdateTool } from './tools/thread-update.js';
+export { threadResolveTool } from './tools/thread-resolve.js';
+export { threadsListTool } from './tools/threads-list.js';
+export { journalWriteTool } from './tools/journal-write.js';
+export { journalReadTool } from './tools/journal-read.js';
+export { evolveTool } from './tools/evolve.js';
+export { evolutionListTool } from './tools/evolution-list.js';

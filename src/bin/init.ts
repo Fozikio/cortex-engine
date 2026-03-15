@@ -236,9 +236,13 @@ const MCP_JSON = `{
 }
 `;
 
-const COGNITIVE_TOOLS_REFERENCE = `# Cognitive Tools
+// ─── TOOLS.md — Agent-Agnostic Tool Reference ────────────────────────────
+// This is the canonical reference. Lives at .fozikio/TOOLS.md.
+// Any agent on any platform reads this file.
 
-This workspace uses cortex-engine for persistent memory. Cortex is your primary persistence system — use the right tool for each type of knowledge.
+const TOOLS_REFERENCE = `# Cortex Tools
+
+This workspace uses cortex-engine for persistent memory. These tools are available via MCP — any compatible client can use them.
 
 ## Use the Right Tool
 
@@ -254,8 +258,9 @@ Don't dump everything into \`observe()\`. Match the tool to what you're recordin
 | Ongoing work or open questions across sessions | \`thread_create\` / \`thread_update\` | observe() |
 | Session reflection at end of day | \`journal_write\` | observe() |
 | Operational breadcrumbs during work | \`ops_append\` | observe() |
+| An identity or behavior change | \`evolve\` | observe() |
 
-## Tools Reference
+## Core Tools (25)
 
 **Write — record knowledge:**
 | Tool | Purpose |
@@ -296,6 +301,7 @@ Don't dump everything into \`observe()\`. Match the tool to what you're recordin
 | Tool | Purpose |
 |------|---------|
 | \`evolve\` | Propose a change to values, preferences, or patterns |
+| \`evolution_list\` | View pending or applied identity proposals |
 | \`journal_write\` | Write a daily reflective entry |
 | \`journal_read\` | Read past journal entries |
 
@@ -312,6 +318,63 @@ Don't dump everything into \`observe()\`. Match the tool to what you're recordin
 3. **Check threads at session start** — call \`threads_list()\` to see what's in progress before starting new work.
 `;
 
+// ─── CLAUDE.md — Claude Code Platform Pointer ────────────────────────────
+// Thin pointer to TOOLS.md + Claude-specific context (hooks, skills).
+
+const CLAUDE_MD = `# Cognitive Tools
+
+This workspace uses [cortex-engine](https://github.com/Fozikio/cortex-engine) for persistent memory.
+
+**Read \`.fozikio/TOOLS.md\` for the full tool reference** — all 25+ cognitive tools with usage guidance.
+
+## Quick Reference
+
+- Before substantive work → \`query()\` to ground in accumulated knowledge
+- Facts → \`observe()\` | Questions → \`wonder()\` | Positions → \`believe()\`
+- Ongoing work → \`thread_create()\` / \`thread_update()\`
+- Session end → \`journal_write()\`
+- Operational logs → \`ops_append()\`
+
+## Installed Hooks
+
+Hooks in \`.claude/hooks/\` fire automatically on Claude Code events. Read the comment headers in each \`.sh\` file for details.
+
+## Installed Skills
+
+Skills in \`.claude/skills/\` are invocable workflows. Use \`/skill-name\` to run them.
+
+## Safety Rules
+
+Reflex rules in \`reflex-rules/\` enforce cognitive habits. See [@fozikio/reflex](https://github.com/Fozikio/reflex) for format details.
+`;
+
+// ─── AGENTS.md — Multi-Agent Roster ──────────────────────────────────────
+// NOT a tool reference. Lists who's in the workspace and what they do.
+
+function buildAgentsRoster(name: string): string {
+  return [
+    '# Agents',
+    '',
+    `## ${name}`,
+    '',
+    'This workspace has a single agent. The agent\'s identity is defined in `.fozikio/mind/profile.md`.',
+    '',
+    '### Cognitive Tools',
+    '',
+    'See `.fozikio/TOOLS.md` for the full tool reference.',
+    '',
+    '### Adding More Agents',
+    '',
+    '```bash',
+    'npx fozikio agent add researcher --description "Research agent"',
+    'npx fozikio agent generate-mcp',
+    '```',
+    '',
+    'Each agent gets its own namespace with isolated memory. See [multi-agent docs](https://github.com/Fozikio/cortex-engine/blob/master/docs/multi-agent-design.md) for details.',
+    '',
+  ].join('\n');
+}
+
 const OBSIDIAN_APP_JSON = `{
   "legacyEditor": false,
   "livePreview": true,
@@ -324,6 +387,65 @@ const OBSIDIAN_APPEARANCE_JSON = `{
   "theme": "obsidian"
 }
 `;
+
+// ─── Plugin Detection ─────────────────────────────────────────────────────
+
+/** Plugin metadata for TOOLS.md generation */
+const KNOWN_PLUGINS: Record<string, { description: string; tools: string }> = {
+  '@fozikio/tools-content': {
+    description: 'Content pipeline — draft, review, publish workflow',
+    tools: '`content_create`, `content_list`, `content_update`',
+  },
+  '@fozikio/tools-social': {
+    description: 'Social cognition — interaction patterns, engagement tracking',
+    tools: '`social_read`, `social_update`',
+  },
+  '@fozikio/tools-graph': {
+    description: 'Graph analysis — memory connections, clustering, visualization',
+    tools: '`graph_report`, `suggest_links`, `find_duplicates`',
+  },
+  '@fozikio/tools-maintenance': {
+    description: 'Memory maintenance — cleanup, deduplication, health checks',
+    tools: '`consolidation_status`, `sleep_pressure`',
+  },
+  '@fozikio/tools-vitals': {
+    description: 'Vitals tracking — agent health metrics and operational signals',
+    tools: '`vitals_get`, `vitals_set`',
+  },
+  '@fozikio/tools-reasoning': {
+    description: 'Cognitive reasoning — abstraction, contradiction, surfacing',
+    tools: '`abstract`, `contradict`, `surface`, `notice`, `resolve`, `intention`, `predict`',
+  },
+};
+
+/**
+ * Scan for installed @fozikio/tools-* plugin packages and return
+ * a markdown section listing their tools for TOOLS.md.
+ */
+function detectInstalledPlugins(targetDir: string): string | null {
+  const found: { name: string; description: string; tools: string }[] = [];
+
+  for (const [pkg, meta] of Object.entries(KNOWN_PLUGINS)) {
+    try {
+      const pkgJsonPath = join(targetDir, 'node_modules', ...pkg.split('/'), 'package.json');
+      if (existsSync(pkgJsonPath)) {
+        found.push({ name: pkg, ...meta });
+      }
+    } catch {
+      // skip
+    }
+  }
+
+  if (found.length === 0) return null;
+
+  let section = '\n## Installed Plugins\n\n';
+  for (const plugin of found) {
+    section += `**${plugin.name}** — ${plugin.description}\n`;
+    section += `Tools: ${plugin.tools}\n\n`;
+  }
+  section += `*Plugins are auto-detected from node_modules. Install more with \`npm install @fozikio/tools-<name>\`.*\n`;
+  return section;
+}
 
 // ─── Manifest & Asset Installation ────────────────────────────────────────
 
@@ -468,11 +590,20 @@ export function runInit(args: string[]): void {
   // .mcp.json
   writeFileSync(join(targetDir, '.mcp.json'), MCP_JSON, 'utf-8');
 
-  // CLAUDE.md
-  writeFileSync(join(targetDir, 'CLAUDE.md'), COGNITIVE_TOOLS_REFERENCE, 'utf-8');
+  // .fozikio/TOOLS.md — canonical agent-agnostic tool reference
+  let toolsContent = TOOLS_REFERENCE;
+  // Detect installed plugins and append their tool sections
+  const pluginSections = detectInstalledPlugins(targetDir);
+  if (pluginSections) {
+    toolsContent += pluginSections;
+  }
+  writeFileSync(join(fozikioDir, 'TOOLS.md'), toolsContent, 'utf-8');
 
-  // AGENTS.md
-  writeFileSync(join(targetDir, 'AGENTS.md'), COGNITIVE_TOOLS_REFERENCE, 'utf-8');
+  // CLAUDE.md — thin pointer for Claude Code users
+  writeFileSync(join(targetDir, 'CLAUDE.md'), CLAUDE_MD, 'utf-8');
+
+  // AGENTS.md — multi-agent roster
+  writeFileSync(join(targetDir, 'AGENTS.md'), buildAgentsRoster(opts.name), 'utf-8');
 
   // .obsidian/
   if (opts.obsidian) {
@@ -512,6 +643,7 @@ export function runInit(args: string[]): void {
   console.error(`  ${relativePath}/.fozikio/journal/`);
   console.error(`  ${relativePath}/.fozikio/state/templates/`);
   console.error(`  ${relativePath}/.fozikio/credentials/.gitignore`);
+  console.error(`  ${relativePath}/.fozikio/TOOLS.md`);
   console.error(`  ${relativePath}/.mcp.json`);
   console.error(`  ${relativePath}/CLAUDE.md`);
   console.error(`  ${relativePath}/AGENTS.md`);

@@ -26,6 +26,14 @@ import { extractKeywords } from '../engines/keywords.js';
 import { retrievability, scheduleNext, elapsedDaysSince } from '../engines/fsrs.js';
 import { dreamConsolidate } from '../engines/cognition.js';
 import { digestDocument } from '../engines/digest.js';
+import { threadCreateTool } from '../tools/thread-create.js';
+import { threadUpdateTool } from '../tools/thread-update.js';
+import { threadResolveTool } from '../tools/thread-resolve.js';
+import { threadsListTool } from '../tools/threads-list.js';
+import { journalWriteTool } from '../tools/journal-write.js';
+import { journalReadTool } from '../tools/journal-read.js';
+import { evolveTool } from '../tools/evolve.js';
+import { evolutionListTool } from '../tools/evolution-list.js';
 
 // ─── Tool Context ─────────────────────────────────────────────────────────────
 
@@ -1077,7 +1085,7 @@ const digestTool: ToolDefinition = {
 
 // ─── Registry ─────────────────────────────────────────────────────────────────
 
-/** All 17 cognitive tool definitions. */
+/** All 25 cognitive tool definitions. */
 export function createTools(): ToolDefinition[] {
   return [
     queryTool,
@@ -1097,6 +1105,14 @@ export function createTools(): ToolDefinition[] {
     wanderTool,
     dreamTool,
     digestTool,
+    threadCreateTool,
+    threadUpdateTool,
+    threadResolveTool,
+    threadsListTool,
+    journalWriteTool,
+    journalReadTool,
+    evolveTool,
+    evolutionListTool,
   ];
 }
 

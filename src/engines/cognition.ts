@@ -425,15 +425,18 @@ async function scoreMemories(
   }
 
   const threeDaysAgo = Date.now() - 3 * 24 * 60 * 60 * 1000;
+  const oneDayAgo = Date.now() - 1 * 24 * 60 * 60 * 1000;
 
   const reviewable = allMemories.filter(
-    (m) => m.fsrs.state === 'review' || m.fsrs.state === 'learning',
+    (m) => m.fsrs.state === 'review' || m.fsrs.state === 'learning' || m.fsrs.state === 'relearning',
   );
 
   for (const memory of reviewable) {
     try {
       const elapsed = elapsedDaysSince(memory.fsrs.last_review);
-      const recentlyAccessed = memory.last_accessed.getTime() >= threeDaysAgo;
+      // Relearning memories use stricter 1-day window (already lapsed once)
+      const accessWindow = memory.fsrs.state === 'relearning' ? oneDayAgo : threeDaysAgo;
+      const recentlyAccessed = memory.last_accessed.getTime() >= accessWindow;
       const rating: 2 | 3 = recentlyAccessed ? 3 : 2;
 
       const scheduled = scheduleNext(memory.fsrs, rating, elapsed);

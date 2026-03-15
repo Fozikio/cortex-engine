@@ -74,7 +74,14 @@ Edit `.fozikio/agent.yaml` to change:
 | LLM | `ollama`, `gemini`, `anthropic`, `openai` | `ollama` |
 
 ```bash
-npx fozikio config --store sqlite --embed ollama --llm ollama
+# Switch to Ollama for local embeddings and LLM
+npx fozikio config --embed ollama --llm ollama
+
+# Switch to OpenAI
+npx fozikio config --embed openai --llm openai
+
+# Revert embeddings to built-in (default, no external model needed)
+npx fozikio config --embed built-in
 ```
 
 ## Local defaults

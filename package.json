@@ -20,6 +20,7 @@
     "node": ">=20"
   },
   "dependencies": {
+    "@fozikio/reflex": "^0.1.0",
     "@huggingface/transformers": "^3.8.1",
     "@modelcontextprotocol/sdk": "^1.6.1",
     "better-sqlite3": "^11.7.0",
@@ -83,6 +84,10 @@
   "homepage": "https://github.com/Fozikio/cortex-engine#readme",
   "files": [
     "dist",
+    "hooks",
+    "skills",
+    "agents",
+    "fozikio.json",
     "LICENSE",
     "README.md"
   ],

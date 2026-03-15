@@ -237,7 +237,7 @@ const MCP_JSON = `{
 
 const COGNITIVE_TOOLS_REFERENCE = `# Cognitive Tools
 
-This workspace uses cortex-engine for persistent memory.
+This workspace uses cortex-engine for persistent memory and Reflex for hook-based cognitive enforcement.
 
 ## Tools
 
@@ -294,7 +294,7 @@ function buildClaudeMd(installedHooks: string[], installedSkills: string[]): str
   let content = COGNITIVE_TOOLS_REFERENCE;
 
   if (installedHooks.length > 0) {
-    content += `\n## Installed Hooks\n\nThese hooks fire automatically — no action needed. Source files are in \`.claude/hooks/\`.\n\n`;
+    content += `\n## Reflex Hooks\n\nThese [Reflex](https://github.com/Fozikio/reflex) hooks fire automatically — no action needed. Reflex is editor-agnostic: the same hooks work in Claude Code, Cursor, and other supported runtimes. Source files are in \`.claude/hooks/\`.\n\n`;
     content += `| Hook | Event | Purpose |\n|------|-------|---------|\n`;
     for (const hook of installedHooks) {
       const [event, purpose] = HOOK_DESCRIPTIONS[hook] ?? ['—', hook];

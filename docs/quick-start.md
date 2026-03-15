@@ -19,6 +19,8 @@ This creates:
 - `.fozikio/` — agent identity and config
 - `.mcp.json` — MCP server config (ready for Claude Code)
 - `CLAUDE.md` / `AGENTS.md` — tool reference for your AI agent
+- `.claude/hooks/` — Reflex hooks (fire automatically, no setup needed)
+- `.claude/skills/` — invocable skill workflows
 
 ## 3. Start the MCP server
 
@@ -86,7 +88,7 @@ npx fozikio config --embed built-in
 
 ## Local defaults
 
-Out of the box, cortex-engine uses **SQLite** (local file) and **built-in** embeddings (no external model needed). No cloud accounts required.
+Out of the box, cortex-engine uses **SQLite** (local file) and **built-in** embeddings. Built-in uses [`all-MiniLM-L6-v2`](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2) via HuggingFace Transformers (ONNX, ~23MB). The model downloads on first use and caches locally — no API keys, no Ollama, no cloud accounts required.
 
 To use Ollama instead, install it from [ollama.com](https://ollama.com), pull an embedding model, and set `--embed ollama`:
 
@@ -94,6 +96,10 @@ To use Ollama instead, install it from [ollama.com](https://ollama.com), pull an
 ollama pull nomic-embed-text
 npx fozikio config --embed ollama
 ```
+
+## Reflex hooks
+
+cortex-engine ships with [Reflex](https://github.com/Fozikio/reflex) hooks that enforce cognitive patterns automatically. Reflex is editor-agnostic — the same hooks work in Claude Code, Cursor, and other supported runtimes. They're installed into `.claude/hooks/` and fire without any agent action.
 
 ## Next steps
 

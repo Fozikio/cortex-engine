@@ -69,13 +69,15 @@ npm run test:watch
 
 Additional variables are required depending on which providers you enable (Firestore, Vertex AI, OpenAI, etc.). See `docs/` for provider-specific configuration.
 
-## Hooks, Skills & Agents
+## Reflex, Skills & Agents
 
-`fozikio init` automatically installs hooks, skills, and agent definitions from the `fozikio.json` manifest into the target workspace. These live in `.claude/hooks/` and `.claude/skills/` after init.
+`fozikio init` automatically installs Reflex hooks, skills, and agent definitions from the `fozikio.json` manifest into the target workspace.
 
-### Hooks
+### Reflex Hooks
 
-Hooks are shell scripts that integrate into Claude Code's event system. They fire automatically — no agent action required.
+cortex-engine uses **[Reflex](https://github.com/Fozikio/reflex)** (`@fozikio/reflex`) for its hook system. Reflex is an editor-agnostic rule interpreter — the same rules work as Claude Code hooks, Cursor rules, or any other supported runtime. Reflex is installed automatically as a dependency of cortex-engine.
+
+Reflex hooks fire automatically — no agent action required.
 
 | Hook | Event | What It Does | Requires |
 |------|-------|-------------|----------|
@@ -85,7 +87,7 @@ Hooks are shell scripts that integrate into Claude Code's event system. They fir
 | `session-lifecycle.sh` | `SessionStart` | Resets session-scoped state files (telemetry log, push-gate state) | — |
 | `project-board-gate.sh` | `PreToolUse` (Bash) | Blocks `git push` to tracked repos until board updates and/or ops logging are done | `.claude/state/project-boards.json` config |
 
-**To disable a hook:** Delete the `.sh` file from `.claude/hooks/`. No other config changes needed.
+**To disable a Reflex hook:** Delete the `.sh` file from `.claude/hooks/`. No other config changes needed.
 
 **To customize project-board-gate:** Create `.claude/state/project-boards.json` with your repos and requirements:
 
@@ -131,15 +133,16 @@ Skills are invocable workflows that agents can use via `/skill-name`.
 3. For each skill in `contents.skills`: copies `skills/{name}/` directory into `{workspace}/.claude/skills/`
 4. Missing source files are skipped with a warning — init never fails due to missing assets
 
-### Overriding Cortex Hooks
+### Overriding Reflex Hooks
 
 To override a hook's behavior without removing it:
 1. Edit the `.sh` file in your workspace's `.claude/hooks/` directly — it's a plain copy, not a symlink
 2. Re-running `fozikio init --here` will overwrite your changes (it copies fresh from the package)
-3. To preserve customizations across re-init, rename the hook file (hooks are matched by filename in Claude Code settings, not by the fozikio manifest)
+3. To preserve customizations across re-init, rename the hook file
 
 ## Related Projects
 
+- **[Reflex](https://github.com/Fozikio/reflex)** — Editor-agnostic rule engine powering cortex-engine hooks
 
 ## License
 

@@ -153,33 +153,22 @@ function buildAgentKitJson(): string {
 }
 
 function buildFozikioReadme(name: string): string {
-  return `# .fozikio/
+  return `# ${name}
 
-This directory is the agent workspace manifest for **${name}**.
+No memories yet. That changes once you run \`fozikio serve\`
+and your agent starts using the tools.
 
-It is read by cortex-engine and fozikio to configure the agent's identity,
-storage backend, embedding provider, and installed components.
+## tools at a glance
 
-## Files
+observe — store a fact worth remembering
+query — find memories by meaning
+believe — record a position that could change
+predict — anticipate based on what's known
+dream — consolidate and compress over time
 
-| File | Purpose |
-|------|---------|
-| \`agent.yaml\` | Identity manifest — agent name, cortex config, credentials |
-| \`agent-kit.json\` | Installable components — hooks, skills, agents |
-| \`mind/profile.md\` | Agent identity profile (who this agent is) |
-| \`knowledge/_index.md\` | Knowledge base index |
-| \`journal/\` | Session journal entries |
-| \`state/templates/\` | Note templates for structured memory |
-| \`credentials/\` | Local credentials (gitignored) |
+Memories that matter get stronger. Memories that don't, fade.
 
-## Usage
-
-Start the MCP server:
-\`\`\`
-npx cortex-engine
-\`\`\`
-
-Or configure via .mcp.json and let your MCP client manage the lifecycle.
+See TOOLS.md for the full reference.
 `;
 }
 
@@ -226,15 +215,34 @@ tags: []
 `;
 
 
-const MCP_JSON = `{
-  "mcpServers": {
-    "cortex": {
-      "command": "npx",
-      "args": ["cortex-engine"]
-    }
+function buildMcpJson(): string {
+  // Read version from package.json for pinning
+  const pkgPath = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'package.json');
+  let version = '0.6.0';
+  try {
+    const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
+    version = pkg.version ?? version;
+  } catch { /* use fallback */ }
+
+  if (process.platform === 'win32') {
+    return JSON.stringify({
+      mcpServers: {
+        cortex: {
+          command: 'cmd',
+          args: ['/c', 'npx', '-y', `cortex-engine@${version}`],
+        },
+      },
+    }, null, 2) + '\n';
   }
+  return JSON.stringify({
+    mcpServers: {
+      cortex: {
+        command: 'npx',
+        args: ['-y', `cortex-engine@${version}`],
+      },
+    },
+  }, null, 2) + '\n';
 }
-`;
 
 // ─── TOOLS.md — Agent-Agnostic Tool Reference ────────────────────────────
 // This is the canonical reference. Lives at .fozikio/TOOLS.md.
@@ -614,8 +622,8 @@ export function runInit(args: string[]): void {
   mkdirSync(credentialsDir, { recursive: true });
   writeFileSync(join(credentialsDir, '.gitignore'), '*\n!.gitignore\n', 'utf-8');
 
-  // .mcp.json
-  writeFileSync(join(targetDir, '.mcp.json'), MCP_JSON, 'utf-8');
+  // .mcp.json — platform-aware, version-pinned
+  writeFileSync(join(targetDir, '.mcp.json'), buildMcpJson(), 'utf-8');
 
   // .fozikio/TOOLS.md — canonical agent-agnostic tool reference
   let toolsContent = TOOLS_REFERENCE;
@@ -660,55 +668,29 @@ export function runInit(args: string[]): void {
     }
   }
 
-  // Success message
+  // Success output
   const relativePath = opts.here ? '.' : opts.name;
-  console.error(`[fozikio] Workspace scaffolded at: ${targetDir}`);
-  console.error('');
-  console.error('Files created:');
-  console.error(`  ${relativePath}/.fozikio/agent.yaml`);
-  console.error(`  ${relativePath}/.fozikio/agent-kit.json`);
-  console.error(`  ${relativePath}/.fozikio/README.md`);
-  console.error(`  ${relativePath}/.fozikio/mind/profile.md`);
-  console.error(`  ${relativePath}/.fozikio/knowledge/_index.md`);
-  console.error(`  ${relativePath}/.fozikio/journal/`);
-  console.error(`  ${relativePath}/.fozikio/state/templates/`);
-  console.error(`  ${relativePath}/.fozikio/credentials/.gitignore`);
-  console.error(`  ${relativePath}/.fozikio/TOOLS.md`);
-  console.error(`  ${relativePath}/.mcp.json`);
-  console.error(`  ${relativePath}/CLAUDE.md`);
-  console.error(`  ${relativePath}/AGENTS.md`);
-  if (opts.obsidian) {
-    console.error(`  ${relativePath}/.obsidian/app.json`);
-    console.error(`  ${relativePath}/.obsidian/appearance.json`);
-  }
+  const embedNote = opts.embed === 'built-in' ? ' (23MB, downloads on first use)' : '';
+  const toolCount = 25 + (pluginSections ? pluginSections.split('| `').length - 1 : 0);
+
+  const log = (s: string) => console.error(s);
+  log('');
+  log(`  \u25C7 store \u00B7\u00B7\u00B7\u00B7\u00B7\u00B7\u00B7\u00B7 ${opts.store}`);
+  log(`  \u25C7 embeddings \u00B7\u00B7\u00B7 ${opts.embed}${embedNote}`);
+  log(`  \u25C7 tools \u00B7\u00B7\u00B7\u00B7\u00B7\u00B7\u00B7\u00B7 ${toolCount} registered`);
   if (installedHooks.length > 0) {
-    console.error('');
-    console.error('Hooks installed:');
-    for (const hook of installedHooks) {
-      console.error(`  ${relativePath}/.claude/hooks/${hook}`);
-    }
-  }
-  if (installedSkills.length > 0) {
-    console.error('');
-    console.error('Skills installed:');
-    for (const skill of installedSkills) {
-      console.error(`  ${relativePath}/.claude/skills/${skill}/`);
-    }
+    log(`  \u25C7 hooks \u00B7\u00B7\u00B7\u00B7\u00B7\u00B7\u00B7\u00B7 ${installedHooks.length} installed`);
   }
   if (installedRules.length > 0) {
-    console.error('');
-    console.error('Reflex safety rules installed:');
-    for (const rule of installedRules) {
-      console.error(`  ${relativePath}/reflex-rules/${rule}`);
-    }
-    console.error('  Validate with: npx reflex validate reflex-rules');
+    log(`  \u25C7 safety \u00B7\u00B7\u00B7\u00B7\u00B7\u00B7 reflex rules applied`);
   }
-  console.error('');
-  console.error('Next steps:');
+  log('');
+  log(`  ${opts.name} initialized at ./${relativePath}/`);
+  log('');
   if (!opts.here) {
-    console.error(`  cd ${opts.name}`);
+    log(`  next: cd ${opts.name} && npx fozikio serve`);
+  } else {
+    log('  next: npx fozikio serve');
   }
-  console.error(`  # Edit .fozikio/agent.yaml to configure your store and providers`);
-  console.error(`  # Add cortex to your MCP client using .mcp.json`);
-  console.error(`  npx cortex-engine   # start the MCP server`);
+  log('');
 }

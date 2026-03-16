@@ -5,6 +5,9 @@
  * and exposes them as MCP tools over stdio.
  */
 
+import { readFileSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
@@ -12,6 +15,16 @@ import {
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import type { CortexConfig } from '../core/config.js';
+
+function getPackageVersion(): string {
+  try {
+    const pkgPath = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'package.json');
+    const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
+    return pkg.version ?? '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+}
 import { Session } from '../core/session.js';
 import { NamespaceManager } from '../namespace/manager.js';
 import { TriggerRegistry } from '../triggers/registry.js';
@@ -91,8 +104,9 @@ export async function createServer(config: CortexConfig): Promise<Server> {
   const activeTools = allTools.filter(t => activeToolNames.has(t.name));
 
   // 9. Create MCP server
+  const version = getPackageVersion();
   const server = new Server(
-    { name: 'cortex-engine', version: '0.1.0' },
+    { name: 'cortex-engine', version },
     { capabilities: { tools: {} } },
   );
 
@@ -138,7 +152,40 @@ export async function createServer(config: CortexConfig): Promise<Server> {
 
 /** Start the MCP server using stdio transport. Called by bin/serve.ts. */
 export async function startServer(config: CortexConfig): Promise<void> {
+  const version = getPackageVersion();
+  const log = (s: string) => process.stderr.write(s + '\n');
+
+  log('');
+  log(`  fozikio v${version}`);
+  log('');
+
+  // Get namespace name for display
+  const nsName = Object.keys(config.namespaces ?? {})[0] ?? 'default';
+  log(`  loading ${nsName} \u00B7\u00B7\u00B7`);
+  log('');
+
+  // Try to get memory count for status line (sqlite only — fast, no async)
+  if (config.store === 'sqlite') {
+    try {
+      const store = new SqliteCortexStore(config.store_options?.sqlite_path ?? './cortex.db', nsName);
+      const memories = await store.getAllMemories();
+      const count = memories.length;
+      if (count === 0) {
+        log('  no memories yet');
+      } else {
+        log(`  memories: ${count}`);
+      }
+      log('');
+    } catch {
+      // Stats are informational — don't block startup
+    }
+  }
+
   const server = await createServer(config);
+
+  log(`  mcp ready \u00B7 ${config.store} \u00B7 stdio`);
+  log('');
+
   const transport = new StdioServerTransport();
   await server.connect(transport);
 }

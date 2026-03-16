@@ -22,9 +22,36 @@ if (agentIdx !== -1 && process.argv[agentIdx + 1]) {
   agentName = process.argv[agentIdx + 1];
 }
 
-const config = loadConfig(undefined, agentName);
+let config;
+try {
+  config = loadConfig(undefined, agentName);
+} catch (err) {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (msg.includes('ENOENT') || msg.includes('not found')) {
+    console.error('');
+    console.error('  \u2717 agent.yaml not found');
+    console.error('    run `fozikio init` first, or use --workspace <path>');
+    console.error('');
+  } else {
+    console.error(`[cortex-engine] ${msg}`);
+  }
+  process.exit(1);
+}
 
 startServer(config).catch(err => {
-  console.error('[cortex-engine] Fatal error:', err);
+  const msg = err instanceof Error ? err.message : String(err);
+  if (msg.includes('EADDRINUSE') || msg.includes('locked')) {
+    console.error('');
+    console.error('  \u2717 memory store is locked');
+    console.error('    another process may be running');
+    console.error('');
+  } else if (msg.includes('network') || msg.includes('fetch')) {
+    console.error('');
+    console.error('  \u2717 embedding model not available');
+    console.error('    check your network connection and try again');
+    console.error('');
+  } else {
+    console.error(`[cortex-engine] Fatal: ${msg}`);
+  }
   process.exit(1);
 });

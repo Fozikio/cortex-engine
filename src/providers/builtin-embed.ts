@@ -15,12 +15,23 @@ let pipeline: ((text: string | string[], options?: Record<string, unknown>) => P
 async function getPipeline() {
   if (pipeline) return pipeline;
 
+  const log = (s: string) => process.stderr.write(s + '\n');
+
   // Dynamic import — @huggingface/transformers is an optional peer dependency
   const { pipeline: createPipeline } = await import('@huggingface/transformers');
 
+  let downloadStarted = false;
   pipeline = await createPipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', {
-    // Use ONNX runtime for CPU inference
     dtype: 'fp32',
+    progress_callback: (progress: { status: string; file?: string; progress?: number }) => {
+      if (progress.status === 'download' && !downloadStarted) {
+        downloadStarted = true;
+        log('[cortex] downloading embedding model (23MB, one-time) ...');
+      }
+      if (progress.status === 'ready' && downloadStarted) {
+        log('[cortex] model cached \u2014 future starts are instant');
+      }
+    },
   }) as unknown as typeof pipeline;
 
   return pipeline!;

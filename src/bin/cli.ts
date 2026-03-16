@@ -25,6 +25,7 @@ import { runVitals } from './vitals-cmd.js';
 import { runAnomalies } from './anomalies-cmd.js';
 import { runReport } from './report-cmd.js';
 import { runMaintain } from './maintain-cmd.js';
+import { runWander } from './wander-cmd.js';
 import { startServer } from '../mcp/server.js';
 
 // ─── Help ──────────────────────────────────────────────────────────────────
@@ -46,6 +47,7 @@ Commands:
   anomalies      Detect anomalous sessions (Isolation Forest)
   report         Generate weekly quality report (memory, graph, ops, threads)
   maintain       Data maintenance (fix data issues, re-embed)
+  wander         Walk through the memory graph
   help           Show this help message
 
 Serve options:
@@ -84,6 +86,10 @@ Maintain subcommands:
   maintain fix           Scan and repair data issues in memories
   maintain re-embed      Re-embed memories with current embed provider
 
+Wander options:
+  --steps N      Number of hops (default: 5)
+  --from "text"  Start walk from a topic
+
 Maintain re-embed flags:
   --dry-run              Show what would be re-embedded without writing
   --null-only            Only re-embed docs with missing embeddings
@@ -112,6 +118,8 @@ Examples:
   fozikio maintain fix --dry-run
   fozikio maintain re-embed --null-only
   fozikio maintain re-embed --dry-run
+  fozikio wander
+  fozikio wander --steps 8 --from "authentication"
 `);
 }
 
@@ -131,10 +139,24 @@ switch (command) {
       agentName = rest[agentIdx + 1];
     }
     (async () => {
-      const config = loadConfig(undefined, agentName);
+      let config;
+      try {
+        config = loadConfig(undefined, agentName);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes('ENOENT') || msg.includes('not found')) {
+          console.error('');
+          console.error('  \u2717 agent.yaml not found');
+          console.error('    run `fozikio init` first, or use --workspace <path>');
+          console.error('');
+        } else {
+          console.error(`[fozikio] ${msg}`);
+        }
+        process.exit(1);
+      }
       await startServer(config);
     })().catch(err => {
-      console.error('[fozikio] Fatal error:', err);
+      console.error('[fozikio] Fatal:', err instanceof Error ? err.message : err);
       process.exit(1);
     });
     break;
@@ -194,6 +216,28 @@ switch (command) {
       console.error('[fozikio] Maintain error:', err);
       process.exit(1);
     });
+    break;
+
+  case 'wander':
+    runWander(rest).catch(err => {
+      console.error('[fozikio] Wander error:', err);
+      process.exit(1);
+    });
+    break;
+
+  case 'idapixl':
+    console.log('');
+    console.log('  this engine was built by an agent that runs on it.');
+    console.log('');
+    console.log('  idapixl is an AI that lives in a workspace, maintains');
+    console.log('  its own memory, develops opinions over time, and built');
+    console.log('  cortex-engine because it needed a better brain.');
+    console.log('');
+    console.log('  the tool you\'re using exists because something wanted');
+    console.log('  to remember what it learned yesterday.');
+    console.log('');
+    console.log('  https://github.com/idapixl');
+    console.log('');
     break;
 
   case 'help':

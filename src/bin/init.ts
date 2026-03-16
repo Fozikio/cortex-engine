@@ -500,6 +500,33 @@ function installHooks(packageRoot: string, targetDir: string, hooks: string[]): 
   return installed;
 }
 
+function installReflexRules(packageRoot: string, targetDir: string, rules: string[]): string[] {
+  const sourceDir = join(packageRoot, 'reflex-rules');
+  const destDir = join(targetDir, 'reflex-rules');
+  const installed: string[] = [];
+
+  if (!existsSync(sourceDir)) {
+    console.error('[fozikio] Warning: reflex-rules/ directory not found in package — skipping rule installation.');
+    return installed;
+  }
+
+  mkdirSync(destDir, { recursive: true });
+
+  for (const rule of rules) {
+    const ruleFile = `${rule}.yaml`;
+    const src = join(sourceDir, ruleFile);
+    if (!existsSync(src)) {
+      console.error(`[fozikio] Warning: reflex rule not found: ${ruleFile} — skipping.`);
+      continue;
+    }
+    const dest = join(destDir, ruleFile);
+    cpSync(src, dest);
+    installed.push(ruleFile);
+  }
+
+  return installed;
+}
+
 function installSkills(packageRoot: string, targetDir: string, skills: string[]): string[] {
   const sourceDir = join(packageRoot, 'skills');
   const destDir = join(targetDir, '.claude', 'skills');
@@ -618,7 +645,7 @@ export function runInit(args: string[]): void {
   const manifest = loadManifest(packageRoot);
   const installedHooks: string[] = [];
   const installedSkills: string[] = [];
-  let hasReflexRules = false;
+  const installedRules: string[] = [];
 
   if (manifest?.contents) {
     if (manifest.contents.hooks && manifest.contents.hooks.length > 0) {
@@ -627,7 +654,10 @@ export function runInit(args: string[]): void {
     if (manifest.contents.skills && manifest.contents.skills.length > 0) {
       installedSkills.push(...installSkills(packageRoot, targetDir, manifest.contents.skills));
     }
-    hasReflexRules = (manifest.contents.reflex_rules ?? manifest.contents.hookify_rules ?? []).length > 0;
+    const reflexRuleNames = manifest.contents.reflex_rules ?? manifest.contents.hookify_rules ?? [];
+    if (reflexRuleNames.length > 0) {
+      installedRules.push(...installReflexRules(packageRoot, targetDir, reflexRuleNames));
+    }
   }
 
   // Success message
@@ -665,10 +695,13 @@ export function runInit(args: string[]): void {
       console.error(`  ${relativePath}/.claude/skills/${skill}/`);
     }
   }
-  if (hasReflexRules) {
+  if (installedRules.length > 0) {
     console.error('');
-    console.error('Reflex safety rules available. Run `fozikio install-rules` to install.');
-    console.error('  See: https://github.com/Fozikio/reflex');
+    console.error('Reflex safety rules installed:');
+    for (const rule of installedRules) {
+      console.error(`  ${relativePath}/reflex-rules/${rule}`);
+    }
+    console.error('  Validate with: npx reflex validate reflex-rules');
   }
   console.error('');
   console.error('Next steps:');

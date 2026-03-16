@@ -121,6 +121,15 @@ export type { ToolDefinition, ToolContext, ToolPlugin } from './mcp/tools.js';
 // Plugins
 export { loadPlugins } from './plugins/loader.js';
 
+// Reflex — portable safety guardrails (re-exported for convenience)
+export { RuleEngine, loadRuleFile, loadRuleDirectory, CORE_RULES } from '@fozikio/reflex';
+export type {
+  ReflexRule,
+  ReflexEventData,
+  EvaluationResult as ReflexResult,
+  ReflexConfig,
+} from '@fozikio/reflex';
+
 // Built-in tools (threads, journal, evolution)
 export { threadCreateTool } from './tools/thread-create.js';
 export { threadUpdateTool } from './tools/thread-update.js';

@@ -40,7 +40,7 @@ cd my-agent
 npx cortex-engine   # starts MCP server
 ```
 
-Your agent now has 25 cognitive tools. See **[docs/quick-start.md](docs/quick-start.md)** for the full 5-minute setup.
+Your agent now has 25 cognitive tools. See the **[Quick Start](https://github.com/Fozikio/cortex-engine/wiki/Quick-Start)** wiki page for the full 5-minute setup.
 
 ### Multi-Agent
 
@@ -50,11 +50,11 @@ npx fozikio agent add trader --description "Trading signals"
 npx fozikio agent generate-mcp   # writes .mcp.json with scoped servers
 ```
 
-Each agent gets isolated memory via namespaces. See **[docs/multi-agent-design.md](docs/multi-agent-design.md)** for architecture details.
+Each agent gets isolated memory via namespaces. See the **[Architecture](https://github.com/Fozikio/cortex-engine/wiki/Architecture)** wiki page for details.
 
 ### Agent-First Setup
 
-The fastest path: open an AI agent in an empty directory and say *"set up a cortex workspace."* The agent runs `npx fozikio init`, reads the generated files, and is immediately productive. See **[docs/agent-first-setup.md](docs/agent-first-setup.md)** for the full guide.
+The fastest path: open an AI agent in an empty directory and say *"set up a cortex workspace."* The agent runs `npx fozikio init`, reads the generated files, and is immediately productive. See the **[Installation](https://github.com/Fozikio/cortex-engine/wiki/Installation)** wiki page for the full guide.
 
 ### Development
 
@@ -132,12 +132,20 @@ cortex-engine ships with 25 cognitive tools out of the box. Plugins add more:
 
 Install any plugin: `npm install @fozikio/tools-threads` — cortex-engine auto-discovers and loads installed plugins.
 
+## Documentation
+
+- **[Wiki](https://github.com/Fozikio/cortex-engine/wiki)** — Installation, architecture, plugin authoring, MCP integration, deployment, FAQ
+- **[Discussions](https://github.com/Fozikio/cortex-engine/discussions)** — Ask questions, share what you've built
+- **[Contributing](https://github.com/Fozikio/.github/blob/main/CONTRIBUTING.md)** — How to contribute
+- **[Project Board](https://github.com/orgs/Fozikio/projects/2)** — Roadmap and active work
+- **[Security](https://github.com/Fozikio/.github/blob/main/SECURITY.md)** — Report vulnerabilities
+
 ## Related Projects
 
 - [@fozikio/reflex](https://github.com/Fozikio/reflex) — Portable safety guardrails for agents. Rules as data, not code.
 - [sigil](https://github.com/Fozikio/sigil) — Agent control surface. Signals and gestures, not conversations.
-- [fozikio.com](https://www.fozikio.com) — Documentation and guides.
-- [reddit.com/r/fozikio](https://www.reddit.com/r/Fozikio/) — Connect
+- [fozikio.com](https://www.fozikio.com) — Documentation and guides
+- [r/fozikio](https://www.reddit.com/r/Fozikio/) — Community
 
 ## License
 

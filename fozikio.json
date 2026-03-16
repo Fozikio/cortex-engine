@@ -8,7 +8,7 @@
   "contents": {
     "hooks": ["cognitive-grounding", "observe-first", "cortex-telemetry", "session-lifecycle", "project-board-gate"],
     "reflex_rules": ["cognitive-grounding", "observe-first", "note-about-doing"],
-    "skills": ["cortex-memory"],
+    "skills": ["cortex-memory", "learn-project"],
     "agents": ["cortex-researcher"]
   }
 }

@@ -130,11 +130,18 @@ identity:
 
 agents: {}
 
+# Two memory spaces by default:
+#   project — tech stack, patterns, architecture, code conventions
+#   personal — user preferences, working style, relationship context
+# They don't leak into each other unless you want them to.
 cortex:
-  ${opts.namespace}:
+  project:
     store: ${opts.store}
     embed: ${opts.embed}
     primary: true
+  personal:
+    store: ${opts.store}
+    embed: ${opts.embed}
 
 credentials:
   dir: credentials/
@@ -334,6 +341,20 @@ const CLAUDE_MD = `# Cognitive Tools
 This workspace uses [cortex-engine](https://github.com/Fozikio/cortex-engine) for persistent memory.
 
 **Read \`.fozikio/TOOLS.md\` for the full tool reference** — all 25+ cognitive tools with usage guidance.
+
+## Memory
+
+You have persistent memory via cortex. Use it naturally:
+
+- After learning something about the project → \`observe("...", namespace: "project")\`
+- After learning a user preference → \`observe("...", namespace: "personal")\`
+- Before starting work → \`query()\` what you know about the topic
+- For ongoing work → \`thread_create()\` / \`thread_update()\`
+- Before observing → ask: would my future self search for this? If not, skip it.
+
+Two memory spaces: **project** (tech stack, patterns, architecture) and **personal** (preferences, working style). They don't leak into each other. When coding, query project. When the conversation is personal, personal context is available.
+
+Don't announce when you're remembering. Don't ask permission. Just be the kind of assistant who doesn't forget.
 
 ## Quick Reference
 
@@ -677,6 +698,7 @@ export function runInit(args: string[]): void {
   log('');
   log(`  \u25C7 store \u00B7\u00B7\u00B7\u00B7\u00B7\u00B7\u00B7\u00B7 ${opts.store}`);
   log(`  \u25C7 embeddings \u00B7\u00B7\u00B7 ${opts.embed}${embedNote}`);
+  log(`  \u25C7 memory \u00B7\u00B7\u00B7\u00B7\u00B7\u00B7\u00B7 project + personal`);
   log(`  \u25C7 tools \u00B7\u00B7\u00B7\u00B7\u00B7\u00B7\u00B7\u00B7 ${toolCount} registered`);
   if (installedHooks.length > 0) {
     log(`  \u25C7 hooks \u00B7\u00B7\u00B7\u00B7\u00B7\u00B7\u00B7\u00B7 ${installedHooks.length} installed`);

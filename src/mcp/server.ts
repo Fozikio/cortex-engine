@@ -267,6 +267,20 @@ async function createLLMProvider(config: CortexConfig): Promise<LLMProvider> {
         vertexAI,
       );
     }
+    case 'openai':
+    case 'anthropic': {
+      // Both use the OpenAI-compatible adapter — Anthropic's API is close enough
+      // for simple generate() calls, or users can point at OpenRouter/LiteLLM.
+      const { OpenAICompatibleLLMProvider } = await import('../providers/openai-compatible.js');
+      return new OpenAICompatibleLLMProvider({
+        model: config.llm === 'anthropic'
+          ? config.llm_options?.anthropic_model
+          : config.llm_options?.openai_model,
+        baseUrl: config.llm_options?.openai_base_url,
+        apiKey: config.llm_options?.openai_api_key,
+        providerName: config.llm,
+      });
+    }
     default:
       throw new Error(`LLM provider "${config.llm}" not yet implemented in this build`);
   }

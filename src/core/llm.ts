@@ -7,7 +7,7 @@
  * - Dream consolidation (memory definition refinement, edge discovery)
  * - Reflective passage generation
  *
- * Implementations: GeminiLLMProvider, OllamaLLMProvider, AnthropicLLMProvider, OpenAILLMProvider.
+ * Implementations: VertexLLMProvider, OllamaLLMProvider, OpenAICompatibleLLMProvider.
  */
 
 export interface LLMProvider {

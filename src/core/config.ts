@@ -121,8 +121,12 @@ export interface CortexConfig {
     vertex_location?: string;
     /** Anthropic: model name (default: claude-sonnet-4-6) */
     anthropic_model?: string;
-    /** OpenAI: model name (default: gpt-4o) */
+    /** OpenAI-compatible: model name (default: gpt-4o) */
     openai_model?: string;
+    /** OpenAI-compatible: base URL (auto-detected from env vars if omitted) */
+    openai_base_url?: string;
+    /** OpenAI-compatible: API key (auto-detected from env vars if omitted) */
+    openai_api_key?: string;
   };
 }
 

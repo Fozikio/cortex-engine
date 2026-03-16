@@ -100,6 +100,8 @@ export { OllamaEmbedProvider, OllamaLLMProvider } from './providers/ollama.js';
 export type { VertexEmbedOptions, VertexEmbedTaskType } from './providers/vertex-embed.js';
 export type { VertexLLMOptions } from './providers/vertex-llm.js';
 export { LocalNLIProvider, nliToCortexVerdict } from './providers/nli-http.js';
+export { OpenAICompatibleLLMProvider } from './providers/openai-compatible.js';
+export type { OpenAICompatibleOptions } from './providers/openai-compatible.js';
 
 // Triggers
 export { TriggerRegistry } from './triggers/registry.js';

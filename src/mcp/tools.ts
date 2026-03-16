@@ -34,6 +34,7 @@ import { journalWriteTool } from '../tools/journal-write.js';
 import { journalReadTool } from '../tools/journal-read.js';
 import { evolveTool } from '../tools/evolve.js';
 import { evolutionListTool } from '../tools/evolution-list.js';
+import { agentInvokeTool } from '../tools/agent-invoke.js';
 
 // ─── Tool Context ─────────────────────────────────────────────────────────────
 
@@ -1137,6 +1138,7 @@ export function createTools(): ToolDefinition[] {
     journalReadTool,
     evolveTool,
     evolutionListTool,
+    agentInvokeTool,
   ];
 }
 

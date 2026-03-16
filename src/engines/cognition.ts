@@ -196,8 +196,9 @@ async function clusterObservations(
       } else {
         unclusteredObs.push(obs);
       }
-    } catch {
+    } catch (err) {
       // Don't let a single observation kill the phase.
+      console.error(`[dream:cluster] Failed to process observation ${obs.id}:`, err);
       unclusteredObs.push(obs);
     }
   }
@@ -358,25 +359,39 @@ async function createFromUnclustered(
     try { await store.markObservationProcessed(obs.id); } catch { /* skip */ }
   }
 
+  console.error(
+    `[dream:create] ${unclusteredObs.length} unclustered → ` +
+    `${declarativeObs.length} declarative/reflective, ${nonDeclarativeObs.length} non-declarative, ` +
+    `${unclusteredObs.length - declarativeObs.length - nonDeclarativeObs.length} no content_type. ` +
+    `Promoting up to ${createLimit}.`
+  );
+
   const candidates = declarativeObs.slice(0, createLimit);
 
   for (const obs of candidates) {
     try {
-      const categoryPrompt =
-        `Classify this text into exactly one category: belief, pattern, entity, topic, value, project, insight, observation.\n\n` +
-        `Text: ${obs.content}\n\n` +
-        `Respond with only the category name, nothing else.`;
+      // Infer category — try LLM first, fall back to content_type-based heuristic.
+      let category: MemoryCategory = 'observation';
+      try {
+        const categoryPrompt =
+          `Classify this text into exactly one category: belief, pattern, entity, topic, value, project, insight, observation.\n\n` +
+          `Text: ${obs.content}\n\n` +
+          `Respond with only the category name, nothing else.`;
 
-      const rawCategory = await llm.generate(categoryPrompt, {
-        temperature: 0,
-        maxTokens: 20,
-      });
+        const rawCategory = await llm.generate(categoryPrompt, {
+          temperature: 0,
+          maxTokens: 20,
+        });
 
-      const validCategories: MemoryCategory[] = [
-        'belief', 'pattern', 'entity', 'topic', 'value', 'project', 'insight', 'observation',
-      ];
-      const inferred = rawCategory.trim().toLowerCase() as MemoryCategory;
-      const category: MemoryCategory = validCategories.includes(inferred) ? inferred : 'observation';
+        const validCategories: MemoryCategory[] = [
+          'belief', 'pattern', 'entity', 'topic', 'value', 'project', 'insight', 'observation',
+        ];
+        const inferred = rawCategory.trim().toLowerCase() as MemoryCategory;
+        category = validCategories.includes(inferred) ? inferred : 'observation';
+      } catch {
+        // LLM classification failed — use content_type heuristic.
+        category = obs.content_type === 'reflective' ? 'insight' : 'belief';
+      }
 
       // Reuse existing embedding or generate a fresh one.
       let embedding = obs.embedding;
@@ -407,7 +422,10 @@ async function createFromUnclustered(
 
       await store.markObservationProcessed(obs.id);
       created++;
-    } catch {
+    } catch (err) {
+      console.error(`[dream:create] Failed to promote observation ${obs.id}:`, err);
+      // Mark as processed anyway to prevent infinite re-processing of broken observations.
+      try { await store.markObservationProcessed(obs.id); } catch { /* skip */ }
       continue;
     }
   }

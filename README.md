@@ -11,7 +11,9 @@ Most AI agents forget everything when the session ends. `cortex-engine` fixes th
 - **Dream consolidation** — batches of short-term observations compress into durable long-term memories (like biological sleep consolidation)
 - **Spaced repetition (FSRS)** — memories that aren't accessed fade over time, keeping retrieval relevant
 - **Embeddings** — pluggable providers (built-in, OpenAI, Vertex AI, Ollama) — no external service required by default
-- **MCP server** — 25 cognitive tools (`query`, `observe`, `believe`, `wander`, `dream`, etc.) over the Model Context Protocol
+- **LLM-agnostic** — pluggable LLM providers: Ollama (free/local), Gemini, DeepSeek, Hugging Face, OpenRouter, OpenAI, or any OpenAI-compatible API
+- **Agent dispatch** — `agent_invoke` lets your agent spawn cheap, cortex-aware sub-tasks using any configured LLM. Knowledge compounds across sessions.
+- **MCP server** — 26 cognitive tools (`query`, `observe`, `believe`, `wander`, `dream`, `agent_invoke`, etc.) over the Model Context Protocol
 
 The result: personality and expertise emerge from accumulated experience, not system prompts. An agent with 200 observations about distributed systems doesn't need to be told "you care about distributed systems." It just knows.
 
@@ -28,19 +30,19 @@ Works with Claude Code, Cursor, Windsurf, or any MCP-compatible client. Runs loc
 | `cognitive` | Higher-order cognitive operations (dream, wander, validate) |
 | `triggers` | Scheduled and event-driven triggers |
 | `bridges` | Adapters for external services and APIs |
-| `providers` | Embedding provider implementations |
+| `providers` | Embedding and LLM provider implementations |
 | `bin` | Entry points: `serve.js` (HTTP + MCP), `cli.js` (admin CLI) |
 
 ## Quick Start
 
 ```bash
-npm install cortex-engine@0.6.0
+npm install cortex-engine@0.8.0
 npx fozikio init my-agent
 cd my-agent
 npx fozikio serve   # starts MCP server
 ```
 
-Your agent now has 25 cognitive tools. The generated `.mcp.json` is version-pinned and platform-aware (Windows `cmd /c` wrapper handled automatically).
+Your agent now has 26 cognitive tools. The generated `.mcp.json` is version-pinned and platform-aware (Windows `cmd /c` wrapper handled automatically).
 
 See the **[Quick Start](https://github.com/Fozikio/cortex-engine/wiki/Quick-Start)** wiki page for the full 5-minute setup.
 
@@ -128,7 +130,7 @@ Skills are invocable workflows that agents can use via `/skill-name`.
 
 ## Plugin Ecosystem
 
-cortex-engine ships with 25 cognitive tools out of the box. Plugins add more:
+cortex-engine ships with 26 cognitive tools out of the box. Plugins add more:
 [Fozikio Plugin Docs](https://www.fozikio.com/products/plugins/)
 
 | Plugin | What It Adds |

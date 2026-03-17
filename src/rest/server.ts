@@ -14,7 +14,7 @@
 
 import { createServer as createHttpServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { readFileSync, existsSync, statSync } from 'node:fs';
-import { join, dirname, extname } from 'node:path';
+import { join, dirname, extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { EngineContext } from '../mcp/server.js';
 import type { ToolDefinition } from '../mcp/tools.js';
@@ -73,10 +73,21 @@ function matchRoute(method: string, pathname: string): RouteMatch | null {
 
 // ─── Request Helpers ──────────────────────────────────────────────────────────
 
+const MAX_BODY_BYTES = 1024 * 1024; // 1 MB request body limit
+
 async function readBody(req: IncomingMessage): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    req.on('data', (chunk: Buffer) => chunks.push(chunk));
+    let totalBytes = 0;
+    req.on('data', (chunk: Buffer) => {
+      totalBytes += chunk.length;
+      if (totalBytes > MAX_BODY_BYTES) {
+        req.destroy();
+        reject(new Error('Request body too large'));
+        return;
+      }
+      chunks.push(chunk);
+    });
     req.on('end', () => {
       const raw = Buffer.concat(chunks).toString('utf-8');
       if (!raw) return resolve({});
@@ -389,8 +400,8 @@ function checkAuth(req: IncomingMessage, token: string | undefined): boolean {
 // ─── CORS ─────────────────────────────────────────────────────────────────────
 
 function setCorsHeaders(res: ServerResponse, origin?: string): void {
-  // Allow any localhost origin (dashboard runs on arbitrary ports)
-  const allowed = origin && /^http:\/\/localhost:\d+$/.test(origin) ? origin : '';
+  // Allow localhost origins (dashboard runs on arbitrary ports)
+  const allowed = origin && /^http:\/\/(?:localhost|127\.0\.0\.1):\d{1,5}$/.test(origin) ? origin : '';
   if (allowed) {
     res.setHeader('Access-Control-Allow-Origin', allowed);
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
@@ -435,12 +446,14 @@ function getDashboardDir(): string {
 
 /** Try to serve a static file. Returns true if served, false if not found. */
 function serveStatic(res: ServerResponse, pathname: string, dashboardDir: string): boolean {
-  // Prevent directory traversal
-  const safePath = pathname.replace(/\.\./g, '').replace(/\/\//g, '/');
-  const filePath = join(dashboardDir, safePath);
+  // Resolve to an absolute path and verify it stays within dashboardDir.
+  // Using resolve() ensures symlinks, "..", and encoded traversals are normalised
+  // before the prefix check — join() alone does not guarantee this.
+  const resolvedDashboard = resolve(dashboardDir);
+  const filePath = resolve(resolvedDashboard, pathname.replace(/^\/+/, ''));
 
-  // Must be within dashboardDir
-  if (!filePath.startsWith(dashboardDir)) return false;
+  // Must be within dashboardDir after full resolution
+  if (!filePath.startsWith(resolvedDashboard + '/') && filePath !== resolvedDashboard) return false;
 
   try {
     if (!existsSync(filePath) || !statSync(filePath).isFile()) return false;
@@ -523,7 +536,10 @@ export async function startRestServer(
       if (message.includes('not available')) {
         errorJson(res, message, 404);
       } else {
-        errorJson(res, message, 500);
+        // Log full error server-side but return generic message to client
+        // to avoid leaking internal details (stack traces, file paths, etc.)
+        process.stderr.write(`[cortex] Internal error: ${message}\n`);
+        errorJson(res, 'Internal server error', 500);
       }
     }
   });

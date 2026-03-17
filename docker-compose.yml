@@ -1,0 +1,38 @@
+# Cortex Engine — Quick Start
+# Run: docker compose up -d
+# Cortex API: http://localhost:8080
+# Firestore UI: http://localhost:8180
+#
+# Connect to Claude Code MCP:
+#   Add to .mcp.json: { "cortex": { "url": "http://localhost:8080" } }
+
+services:
+  cortex:
+    image: ghcr.io/fozikio/cortex-engine:latest
+    ports:
+      - "8080:8080"
+    environment:
+      FIRESTORE_EMULATOR_HOST: firestore:8180
+      GCP_PROJECT_ID: cortex-local
+      PORT: "8080"
+      NODE_ENV: development
+      CORS_ORIGINS: "*"
+      CORTEX_INSTANCE_NAME: cortex
+    depends_on:
+      - firestore
+    restart: unless-stopped
+    networks:
+      - cortex
+
+  firestore:
+    image: google/cloud-sdk:slim
+    command: ["gcloud", "emulators", "firestore", "start", "--host-port=0.0.0.0:8180", "--project=cortex-local"]
+    ports:
+      - "8180:8180"
+    restart: unless-stopped
+    networks:
+      - cortex
+
+networks:
+  cortex:
+    driver: bridge

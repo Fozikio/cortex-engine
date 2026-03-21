@@ -11,6 +11,16 @@ Persistent memory for AI agents. Open source, LLM-agnostic, works with any MCP c
   <img src="demo.gif" alt="cortex-engine demo — init, explore, serve" width="800" />
 </p>
 
+## Star History
+
+<a href="https://www.star-history.com/?repos=Fozikio%2Fcortex-engine&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/image?repos=Fozikio/cortex-engine&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/image?repos=Fozikio/cortex-engine&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/image?repos=Fozikio/cortex-engine&type=date&legend=top-left" />
+ </picture>
+</a>
+
 ## What It Does
 
 Most AI agents forget everything when the session ends. `cortex-engine` fixes that — it gives agents a persistent memory layer that survives across sessions, models, and runtimes.

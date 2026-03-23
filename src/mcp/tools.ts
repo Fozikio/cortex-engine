@@ -13,6 +13,7 @@ import type { Session } from '../core/session.js';
 import type { NamespaceManager } from '../namespace/manager.js';
 import type { TriggerRegistry } from '../triggers/registry.js';
 import type { BridgeRegistry } from '../bridges/registry.js';
+import type { FederationClient } from '../federation/client.js';
 import type { OpsEntryType, OpsStatus, QueryFilter } from '../core/types.js';
 import { executeIngestionPipeline } from '../triggers/pipeline.js';
 import { checkBridges } from '../bridges/bridge.js';
@@ -36,6 +37,8 @@ import { evolveTool } from '../tools/evolve.js';
 import { evolutionListTool } from '../tools/evolution-list.js';
 import { agentInvokeTool } from '../tools/agent-invoke.js';
 import { goalTool } from '../tools/goal.js';
+import { queryCrossTool } from '../tools/query-cross.js';
+import { federatedQueryTool } from '../tools/federated-query.js';
 
 // ─── Tool Context ─────────────────────────────────────────────────────────────
 
@@ -49,6 +52,8 @@ export interface ToolContext {
   bridges: BridgeRegistry;
   /** All registered tools (core + plugin), for trigger/bridge pipeline lookups. */
   allTools: ToolDefinition[];
+  /** Federation client for multi-instance coordination (optional, only if configured). */
+  federation?: FederationClient;
 }
 
 // ─── Tool Definition ──────────────────────────────────────────────────────────
@@ -1205,6 +1210,8 @@ export function createTools(): ToolDefinition[] {
     evolutionListTool,
     agentInvokeTool,
     goalTool,
+    queryCrossTool,
+    federatedQueryTool,
   ];
 }
 

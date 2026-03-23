@@ -162,3 +162,9 @@ export { journalReadTool } from './tools/journal-read.js';
 export { evolveTool } from './tools/evolve.js';
 export { evolutionListTool } from './tools/evolution-list.js';
 export { goalTool } from './tools/goal.js';
+export { queryCrossTool } from './tools/query-cross.js';
+export { federatedQueryTool } from './tools/federated-query.js';
+
+// Federation
+export { FederationClient } from './federation/client.js';
+export type { FederationPeer, FederationSearchResult } from './federation/client.js';

@@ -15,6 +15,7 @@ import {
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import type { CortexConfig } from '../core/config.js';
+import { FederationClient } from '../federation/client.js';
 
 function getPackageVersion(): string {
   try {
@@ -103,6 +104,41 @@ export async function createContext(config: CortexConfig): Promise<EngineContext
 
   // 7. Build tool context (includes allTools for trigger/bridge pipelines)
   const ctx: ToolContext = { namespaces, embed, llm, session, triggers, bridges, allTools };
+
+  // 7b. Wire federation if configured
+  if (config.federation) {
+    const federation = new FederationClient(
+      config.federation.sigil_url,
+      config.federation.sigil_token,
+    );
+    ctx.federation = federation;
+
+    // Auto-register with sigil (best-effort, don't block startup)
+    if (config.federation.auto_register !== false) {
+      const agentName = 'cortex-engine';
+      const agentId = agentName;
+      federation.registerSelf({
+        agent_id: agentId,
+        name: agentName,
+        cortex_url: config.federation.self_url,
+        capabilities: [...namespaces.getActiveTools()],
+      }).catch(() => { /* best-effort */ });
+
+      // Start heartbeat interval (every 60s)
+      const heartbeatInterval = setInterval(() => {
+        federation.heartbeat(agentId).catch(() => { /* best-effort */ });
+      }, 60_000);
+      heartbeatInterval.unref();
+
+      // Cleanup on process exit (best-effort, don't block exit)
+      const cleanup = () => {
+        clearInterval(heartbeatInterval);
+        federation.deregisterSelf(agentId).catch(() => { /* best-effort */ });
+      };
+      process.once('SIGTERM', cleanup);
+      process.once('SIGINT', cleanup);
+    }
+  }
 
   // 8. Filter active tools by namespace config + core set
   const activeToolNames = namespaces.getActiveTools();

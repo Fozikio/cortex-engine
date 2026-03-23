@@ -19,6 +19,8 @@ export interface NamespaceConfig {
   similarity_merge?: number;
   /** Similarity threshold above which observations are linked (default: 0.50). */
   similarity_link?: number;
+  /** Whether other namespaces can read this namespace's memories (default: false). */
+  queryable?: boolean;
 }
 
 export interface IngestionTriggerConfig {
@@ -84,6 +86,18 @@ export interface CortexConfig {
 
   /** Benchmark/research mode config. */
   benchmark?: BenchmarkConfig;
+
+  /** Federation settings for multi-instance coordination via sigil. */
+  federation?: {
+    /** Sigil server URL (e.g. http://localhost:8090) */
+    sigil_url: string;
+    /** Sigil auth token */
+    sigil_token?: string;
+    /** This agent's externally-reachable cortex REST URL */
+    self_url?: string;
+    /** Auto-register with sigil on startup (default: true) */
+    auto_register?: boolean;
+  };
 
   /** Store-specific options. */
   store_options?: {

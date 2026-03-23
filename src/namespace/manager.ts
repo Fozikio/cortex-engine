@@ -86,4 +86,11 @@ export class NamespaceManager {
   isToolActive(toolName: string, namespace?: string): boolean {
     return this.getConfig(namespace).cognitive_tools.includes(toolName);
   }
+
+  /** Get namespace names that allow cross-namespace reads. */
+  getQueryableNamespaces(): string[] {
+    return Array.from(this.configs.entries())
+      .filter(([_, cfg]) => cfg.queryable === true)
+      .map(([name]) => name);
+  }
 }

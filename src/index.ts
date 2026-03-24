@@ -40,6 +40,9 @@ export type {
   OpsEntry,
   OpsEntryType,
   OpsStatus,
+  OpsSessionType,
+  OpsInstructionMeta,
+  OpsHandoffMeta,
   OpsFilters,
   Signal,
   SignalType,
@@ -53,6 +56,7 @@ export type {
   ConfidenceTier,
   QueryFilter,
 } from './core/types.js';
+export { OPS_TTL_DAYS } from './core/types.js';
 
 // Engines (pure functions, storage-agnostic)
 export {
@@ -89,6 +93,7 @@ export type {
   ScorePhaseResult,
   AbstractPhaseResult,
   ReportPhaseResult,
+  HindsightPhaseResult,
 } from './engines/cognition.js';
 
 export { computeFiedlerValue, detectPESaturation } from './engines/graph-metrics.js';

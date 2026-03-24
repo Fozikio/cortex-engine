@@ -44,7 +44,7 @@ export interface DreamResult {
     score: { scored: number };
     report: { text: string };
     abstract: { abstractions: number };
-    hindsight: { reviewed: number; revised: number };
+    hindsight?: { reviewed: number; revised: number };
   };
   total_processed: number;
   duration_ms: number;
@@ -926,7 +926,7 @@ async function abstractCrossDomain(
 
 // ─── Phase 7: Report ──────────────────────────────────────────────────────────
 
-// ─── Phase 8: Hindsight ───────────────────────────────────────────────────────
+// ─── Phase 7: Hindsight ───────────────────────────────────────────────────────
 
 /**
  * Proactively audit memories that have silently hardened through unchallenged reinforcement.
@@ -1205,7 +1205,7 @@ export async function dreamPhaseB(
   const scoreResult = await scoreMemories(store, options);
   const abstractResult = await abstractCrossDomain(store, embed, llm, options);
 
-  // Phase 8 — Hindsight: audit entrenched memories for silent confidence hardening.
+  // Phase 7 — Hindsight: audit entrenched memories for silent confidence hardening.
   const hindsightResult = options.skip_hindsight
     ? { reviewed: 0, revised: 0 }
     : await hindsightReview(store, llm, options).catch(() => ({ reviewed: 0, revised: 0 }));
@@ -1298,7 +1298,7 @@ export async function dreamConsolidate(
   // Phase 6 — Abstract (REM)
   const abstractResult = await abstractCrossDomain(store, embed, llm, options);
 
-  // Phase 8 — Hindsight: audit entrenched memories for silent confidence hardening.
+  // Phase 7 — Hindsight: audit entrenched memories for silent confidence hardening.
   // Runs after scoring so recently contradiction-penalized memories are already handled.
   const hindsightResult = options.skip_hindsight
     ? { reviewed: 0, revised: 0 }

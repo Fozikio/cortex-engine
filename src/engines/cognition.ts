@@ -43,6 +43,7 @@ export interface DreamResult {
     score: { scored: number };
     report: { text: string };
     abstract: { abstractions: number };
+    hindsight: { reviewed: number; revised: number };
   };
   total_processed: number;
   duration_ms: number;
@@ -99,6 +100,25 @@ export interface DreamOptions {
    * Reduce if hitting token limits with a smaller model.
    */
   long_context_memory_limit?: number;
+  /**
+   * If true, skip the hindsight review phase.
+   */
+  skip_hindsight?: boolean;
+  /**
+   * Max number of entrenched memories to audit in the hindsight phase (default: 5).
+   * Each memory requires one LLM call, so keep this low for cost/latency.
+   */
+  hindsight_max_review?: number;
+  /**
+   * Minimum FSRS stability (days) for a memory to be a hindsight candidate (default: 21).
+   * Memories below this threshold are not yet entrenched enough to warrant review.
+   */
+  hindsight_stability_threshold?: number;
+  /**
+   * Minimum number of FSRS reps for a hindsight candidate (default: 4).
+   * Ensures the memory has been reinforced multiple times before being questioned.
+   */
+  hindsight_min_reps?: number;
 }
 
 // ─── Phase result types ───────────────────────────────────────────────────────
@@ -135,6 +155,13 @@ export interface AbstractPhaseResult {
 
 export interface ReportPhaseResult {
   text: string;
+}
+
+export interface HindsightPhaseResult {
+  /** Number of entrenched memories audited. */
+  reviewed: number;
+  /** Number of memories where confidence was reduced or definition was revised. */
+  revised: number;
 }
 
 // ─── Phase 1: Cluster ─────────────────────────────────────────────────────────
@@ -898,9 +925,170 @@ async function abstractCrossDomain(
 
 // ─── Phase 7: Report ──────────────────────────────────────────────────────────
 
+// ─── Phase 8: Hindsight ───────────────────────────────────────────────────────
+
+/**
+ * Proactively audit memories that have silently hardened through unchallenged reinforcement.
+ *
+ * Targets memories in 'review' state with high stability, zero lapses, and no existing
+ * contradiction/tension edges — i.e., beliefs that keep getting rated Easy without ever
+ * being questioned. For each candidate, an LLM critically examines whether the confidence
+ * is earned through diverse evidence or accumulated through narrow confirmation.
+ *
+ * When concerns are found:
+ *   - Confidence is reduced by up to 0.25
+ *   - Definition is revised if genuinely warranted (logged via putBelief)
+ *   - A TENSION signal is created for follow-up
+ *
+ * Memories already carrying contradiction/tension edges are skipped — Phase 5 handles those.
+ */
+async function hindsightReview(
+  store: CortexStore,
+  llm: LLMProvider,
+  options: DreamOptions,
+): Promise<HindsightPhaseResult> {
+  const maxReview = options.hindsight_max_review ?? 5;
+  const stabilityThreshold = options.hindsight_stability_threshold ?? 21;
+  const minReps = options.hindsight_min_reps ?? 4;
+
+  let reviewed = 0;
+  let revised = 0;
+
+  let allMemories: Memory[];
+  try {
+    allMemories = await store.getAllMemories();
+  } catch {
+    return { reviewed: 0, revised: 0 };
+  }
+
+  // Candidates: well-entrenched (high stability), never challenged (zero lapses),
+  // repeatedly reinforced (reps >= minReps), trusted (confidence >= 0.7), not faded.
+  const candidates = allMemories.filter(
+    (m) =>
+      m.fsrs.state === 'review' &&
+      m.fsrs.stability >= stabilityThreshold &&
+      m.fsrs.lapses === 0 &&
+      m.fsrs.reps >= minReps &&
+      m.confidence >= 0.7 &&
+      !m.faded,
+  );
+
+  if (candidates.length === 0) return { reviewed: 0, revised: 0 };
+
+  // Most entrenched first — those are the highest risk for silent hardening.
+  const sample = candidates
+    .sort((a, b) => b.fsrs.stability - a.fsrs.stability)
+    .slice(0, maxReview);
+
+  for (const memory of sample) {
+    try {
+      const [beliefHistory, edges] = await Promise.all([
+        store.getBeliefHistory(memory.id).catch(() => [] as import('../core/types.js').BeliefEntry[]),
+        store.getEdgesFrom(memory.id).catch(() => [] as import('../core/types.js').Edge[]),
+      ]);
+
+      // Skip memories already explicitly contradicted — Phase 5 scores those via contradiction penalty.
+      const hasActiveChallenge = edges.some(
+        (e) => e.relation === 'contradicts' || e.relation === 'tensions-with',
+      );
+      if (hasActiveChallenge) continue;
+
+      const historyNote =
+        beliefHistory.length > 0
+          ? `Belief revisions: ${beliefHistory.length} (most recent reason: "${beliefHistory[beliefHistory.length - 1]?.reason ?? 'unknown'}")`
+          : 'No belief revisions — this definition has never been challenged or updated.';
+
+      const edgeSummary =
+        edges
+          .slice(0, 8)
+          .map((e) => e.relation)
+          .join(', ') || 'none';
+
+      const prompt =
+        `You are performing a hindsight review of a belief that has been repeatedly reinforced without ever failing a review or being contradicted.\n\n` +
+        `Memory: "${memory.name}"\n` +
+        `Definition: ${memory.definition}\n` +
+        `Category: ${memory.category}\n` +
+        `Confidence: ${memory.confidence.toFixed(2)}, FSRS stability: ${memory.fsrs.stability.toFixed(1)} days, Reps: ${memory.fsrs.reps}, Lapses: ${memory.fsrs.lapses}\n` +
+        `${historyNote}\n` +
+        `Edge relation types: ${edgeSummary}\n\n` +
+        `Critically examine this belief. Consider:\n` +
+        `- Could this have hardened through narrow, self-confirming signals rather than diverse evidence?\n` +
+        `- Is the definition overstated, incomplete, or context-dependent in ways not captured here?\n` +
+        `- Are there implicit assumptions embedded in it that should be made explicit or questioned?\n\n` +
+        `Respond with JSON only — no preamble:\n` +
+        `{"concern": "string describing the issue, or null if none", "confidence_penalty": <number 0.0–0.25, use 0.0 if no concern>, "revised_definition": "string or null", "reason": "brief explanation"}`;
+
+      const result = await llm.generateJSON<{
+        concern: string | null;
+        confidence_penalty: number;
+        revised_definition: string | null;
+        reason: string;
+      }>(prompt, { temperature: 0.3 });
+
+      if (!result) continue;
+
+      reviewed++;
+
+      const penalty = Math.min(0.25, Math.max(0, result.confidence_penalty ?? 0));
+      const newDef = result.revised_definition?.trim();
+      const definitionChanged = newDef && newDef !== memory.definition.trim();
+      const hasConcern = result.concern || penalty > 0.05 || definitionChanged;
+
+      if (!hasConcern) continue;
+
+      // Apply confidence reduction.
+      if (penalty > 0.05) {
+        await store.updateMemory(memory.id, {
+          confidence: Math.max(0.1, memory.confidence - penalty),
+          updated_at: new Date(),
+        });
+      }
+
+      // Revise definition if warranted — log it so the audit trail is complete.
+      if (definitionChanged && newDef) {
+        await store.putBelief({
+          concept_id: memory.id,
+          old_definition: memory.definition,
+          new_definition: newDef,
+          reason: `[hindsight] ${result.reason}`,
+          changed_at: new Date(),
+        });
+        await store.updateMemory(memory.id, {
+          definition: newDef,
+          updated_at: new Date(),
+        });
+      }
+
+      // Surface the concern as a TENSION signal for follow-up.
+      if (result.concern) {
+        try {
+          await store.putSignal({
+            type: 'TENSION',
+            description: `[hindsight] ${result.concern}`,
+            concept_ids: [memory.id],
+            priority: Math.min(0.8, penalty * 4 + 0.3),
+            resolved: false,
+            created_at: new Date(),
+            resolution_note: null,
+          });
+        } catch {
+          // Signal creation is best-effort — don't abort the loop.
+        }
+      }
+
+      revised++;
+    } catch {
+      continue;
+    }
+  }
+
+  return { reviewed, revised };
+}
+
 /**
  * Generate a human-readable narrative of what the dream cycle accomplished.
- * Called last so it can include abstraction count, Fiedler value, and PE stats.
+ * Called last so it can include abstraction count, Fiedler value, PE stats, and hindsight results.
  */
 async function generateReport(
   llm: LLMProvider,
@@ -910,6 +1098,7 @@ async function generateReport(
   connect: ConnectPhaseResult,
   score: ScorePhaseResult,
   abstract: AbstractPhaseResult,
+  hindsight: HindsightPhaseResult,
   fiedlerValue?: number,
   peSaturation?: PESaturationResult,
 ): Promise<ReportPhaseResult> {
@@ -920,13 +1109,16 @@ async function generateReport(
     const peNote = peSaturation
       ? ` PE saturation: mean_pe=${peSaturation.mean_pe.toFixed(3)}, trend=${peSaturation.trend}${peSaturation.saturated ? ' (SATURATED)' : ''}.`
       : '';
+    const hindsightNote = hindsight.reviewed > 0
+      ? ` Hindsight: ${hindsight.reviewed} entrenched memories audited, ${hindsight.revised} revised.`
+      : '';
 
     const prompt =
       `Summarize this dream consolidation session in 2-3 sentences.\n\n` +
       `Stats: ${cluster.clustered} observations clustered, ${refine.refined} memories refined, ` +
       `${create.created} new memories created, ${connect.edges_discovered} edges discovered, ` +
       `${score.scored} memories reviewed, ${abstract.abstractions} abstractions formed.` +
-      fiedlerNote + peNote + `\n\n` +
+      fiedlerNote + peNote + hindsightNote + `\n\n` +
       `Write a brief, reflective summary of what was learned and consolidated.`;
 
     const text = await llm.generate(prompt, {
@@ -939,12 +1131,15 @@ async function generateReport(
     const fiedlerNote = fiedlerValue !== undefined
       ? ` Fiedler=${fiedlerValue.toFixed(4)}.`
       : '';
+    const hindsightNote = hindsight.reviewed > 0
+      ? ` Hindsight: ${hindsight.reviewed} audited, ${hindsight.revised} revised.`
+      : '';
     const fallback =
       `Dream cycle complete. ` +
       `Clustered ${cluster.clustered} observations, refined ${refine.refined} memories, ` +
       `created ${create.created} new memories, discovered ${connect.edges_discovered} edges, ` +
       `reviewed ${score.scored} memories, formed ${abstract.abstractions} abstractions.` +
-      fiedlerNote;
+      fiedlerNote + hindsightNote;
     return { text: fallback };
   }
 }
@@ -978,12 +1173,12 @@ export async function dreamPhaseA(
  * Phase B (REM analog): cross-association and integration.
  *
  * Run in cron sessions for deep integration: edge discovery, FSRS scoring,
- * cross-domain abstraction, and report generation.
+ * cross-domain abstraction, hindsight review, and report generation.
  *
  * Also computes the Fiedler value (graph health) and PE saturation unless
  * suppressed via options.skip_fiedler / options.skip_pe_saturation.
  *
- * Phases executed: Connect -> Score -> Abstract -> Report
+ * Phases executed: Connect -> Score -> Abstract -> Hindsight -> Report
  */
 export async function dreamPhaseB(
   store: CortexStore,
@@ -994,6 +1189,7 @@ export async function dreamPhaseB(
   connect: ConnectPhaseResult;
   score: ScorePhaseResult;
   abstract: AbstractPhaseResult;
+  hindsight: HindsightPhaseResult;
   report: ReportPhaseResult;
   fiedler_value: number | undefined;
   pe_saturation: PESaturationResult | undefined;
@@ -1003,6 +1199,11 @@ export async function dreamPhaseB(
     : await discoverEdges(store, llm, options);
   const scoreResult = await scoreMemories(store, options);
   const abstractResult = await abstractCrossDomain(store, embed, llm, options);
+
+  // Phase 8 — Hindsight: audit entrenched memories for silent confidence hardening.
+  const hindsightResult = options.skip_hindsight
+    ? { reviewed: 0, revised: 0 }
+    : await hindsightReview(store, llm, options).catch(() => ({ reviewed: 0, revised: 0 }));
 
   // Graph health metrics — run in parallel for speed.
   const [fiedlerValue, peSaturation] = await Promise.all([
@@ -1029,6 +1230,7 @@ export async function dreamPhaseB(
     connectResult,
     scoreResult,
     abstractResult,
+    hindsightResult,
     fiedlerValue,
     peSaturation,
   );
@@ -1037,6 +1239,7 @@ export async function dreamPhaseB(
     connect: connectResult,
     score: scoreResult,
     abstract: abstractResult,
+    hindsight: hindsightResult,
     report: reportResult,
     fiedler_value: fiedlerValue,
     pe_saturation: peSaturation,
@@ -1046,12 +1249,12 @@ export async function dreamPhaseB(
 // ─── Main: dreamConsolidate ───────────────────────────────────────────────────
 
 /**
- * Run the full 7-phase dream consolidation cycle.
+ * Run the full 8-phase dream consolidation cycle.
  *
  * Phase ordering:
- *   1 Cluster -> 2 Refine -> 3 Create -> 4 Connect -> 5 Score -> 6 Abstract -> 7 Report
+ *   1 Cluster -> 2 Refine -> 3 Create -> 4 Connect -> 5 Score -> 6 Abstract -> 8 Hindsight -> 7 Report
  *
- * Report runs last so it can include abstraction stats, Fiedler value, and PE.
+ * Report runs last so it can include all phase stats, Fiedler value, PE, and hindsight results.
  * A phase error is caught internally — the cycle continues with degraded output.
  *
  * Backward compatible: existing callers using dreamConsolidate() are unaffected.
@@ -1090,6 +1293,12 @@ export async function dreamConsolidate(
   // Phase 6 — Abstract (REM)
   const abstractResult = await abstractCrossDomain(store, embed, llm, options);
 
+  // Phase 8 — Hindsight: audit entrenched memories for silent confidence hardening.
+  // Runs after scoring so recently contradiction-penalized memories are already handled.
+  const hindsightResult = options.skip_hindsight
+    ? { reviewed: 0, revised: 0 }
+    : await hindsightReview(store, llm, options).catch(() => ({ reviewed: 0, revised: 0 }));
+
   // Graph health metrics — run in parallel, don't block the report.
   const [fiedlerValue, peSaturation] = await Promise.all([
     options.skip_fiedler
@@ -1100,7 +1309,7 @@ export async function dreamConsolidate(
       : detectPESaturation(store).catch(() => undefined),
   ]);
 
-  // Phase 7 — Report (runs after abstract to include abstraction count)
+  // Phase 7 — Report (runs last to include all phase stats)
   const reportResult = await generateReport(
     llm,
     clusterResult,
@@ -1109,6 +1318,7 @@ export async function dreamConsolidate(
     connectResult,
     scoreResult,
     abstractResult,
+    hindsightResult,
     fiedlerValue,
     peSaturation,
   );
@@ -1126,6 +1336,7 @@ export async function dreamConsolidate(
       score: { scored: scoreResult.scored },
       report: { text: reportResult.text },
       abstract: { abstractions: abstractResult.abstractions },
+      hindsight: { reviewed: hindsightResult.reviewed, revised: hindsightResult.revised },
     },
     total_processed: clusterResult.clustered + createResult.created,
     duration_ms,

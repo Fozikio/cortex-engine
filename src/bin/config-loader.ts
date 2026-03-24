@@ -136,6 +136,11 @@ export function loadConfig(cwd: string = process.cwd(), agentName?: string): Cor
             config = { ...DEFAULT_CONFIG, ...(cortex as Partial<CortexConfig>) };
           }
 
+          // Warn if API key is embedded in config file instead of env var
+          if (config.llm_options?.openai_api_key && !process.env['OPENAI_API_KEY']) {
+            console.warn('[cortex-engine] WARNING: openai_api_key found in config file. Use OPENAI_API_KEY env var instead to avoid committing secrets.');
+          }
+
           // Apply agent scoping if agentName is provided
           if (agentName) {
             const agentParsed = parsed as AgentConfig;

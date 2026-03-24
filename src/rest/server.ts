@@ -13,6 +13,7 @@
  */
 
 import { createServer as createHttpServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { timingSafeEqual } from 'node:crypto';
 import { readFileSync, existsSync, statSync } from 'node:fs';
 import { join, dirname, extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -369,8 +370,21 @@ route('GET', '/api/v2/retrieval-feedback/audit', async (req, res, _params, engin
 
 // ── Generic tool invocation (escape hatch) ────────────────────────────────────
 
+// Tools that are too destructive or sensitive for the generic REST endpoint.
+// These should only be invoked via MCP (direct agent access), not REST.
+const BLOCKED_REST_TOOLS = new Set([
+  'forget',         // deletes memories
+  'dream',          // heavy consolidation
+  'evolve',         // identity changes
+  'resolve',        // resolves signals
+  'thread_resolve', // resolves threads
+]);
+
 route('POST', '/api/tools/:name', async (req, res, params, engine) => {
   const toolName = params['name'];
+  if (BLOCKED_REST_TOOLS.has(toolName)) {
+    return errorJson(res, 'Tool not available via REST', 403);
+  }
   const body = await readBody(req);
   const result = await invokeTool(engine, toolName, body);
   json(res, result);
@@ -389,12 +403,22 @@ route('GET', '/api/tools', async (_req, res, _params, engine) => {
 
 // ─── Auth Middleware ──────────────────────────────────────────────────────────
 
+function timingSafeCompare(a: string, b: string): boolean {
+  const maxLen = Math.max(a.length, b.length);
+  const bufA = Buffer.alloc(maxLen);
+  const bufB = Buffer.alloc(maxLen);
+  bufA.write(a);
+  bufB.write(b);
+  return a.length === b.length && timingSafeEqual(bufA, bufB);
+}
+
 function checkAuth(req: IncomingMessage, token: string | undefined): boolean {
   if (!token) return true; // No token configured = open access
   const header = req.headers['x-cortex-token']
     ?? req.headers['x-marty-token']
     ?? req.headers['authorization']?.replace(/^Bearer\s+/i, '');
-  return header === token;
+  if (!header || typeof header !== 'string') return false;
+  return timingSafeCompare(header, token);
 }
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────

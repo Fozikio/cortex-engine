@@ -139,7 +139,11 @@ export interface CortexConfig {
     openai_model?: string;
     /** OpenAI-compatible: base URL (auto-detected from env vars if omitted) */
     openai_base_url?: string;
-    /** OpenAI-compatible: API key (auto-detected from env vars if omitted) */
+    /**
+     * OpenAI-compatible: API key (auto-detected from env vars if omitted).
+     * WARNING: Prefer setting OPENAI_API_KEY as an environment variable rather
+     * than embedding it in config files to avoid accidentally committing secrets.
+     */
     openai_api_key?: string;
     /** Kimi (Moonshot AI): model name (default: kimi-k2-0711-preview) */
     kimi_model?: string;

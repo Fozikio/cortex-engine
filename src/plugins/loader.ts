@@ -48,6 +48,25 @@ export async function loadPlugins(
   for (const spec of pluginPaths) {
     try {
       const importPath = resolvePluginPath(spec);
+
+      // Validate plugin path is within trusted directories.
+      // npm packages (no leading . or /) are resolved by Node and always come
+      // from node_modules, so they pass through. Local paths must resolve to
+      // the project directory or an @fozikio/cortex- package in node_modules.
+      if (importPath.startsWith('file://')) {
+        const resolved = new URL(importPath).pathname.replace(/^\/([A-Z]:)/i, '$1'); // Windows drive letter fix
+        const allowedPrefixes = [
+          resolve('node_modules', '@fozikio'),
+          resolve('node_modules', 'cortex-'),
+          resolve('.'),
+        ];
+        const isAllowed = allowedPrefixes.some(prefix => resolved.startsWith(prefix));
+        if (!isAllowed) {
+          console.error(`[cortex-engine] Refusing to load plugin from untrusted path: ${resolved}`);
+          continue;
+        }
+      }
+
       const mod = await import(importPath) as { default?: ToolPlugin };
       const plugin = mod.default;
 

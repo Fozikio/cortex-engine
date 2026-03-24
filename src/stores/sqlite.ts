@@ -262,6 +262,9 @@ export class SqliteCortexStore implements CortexStore {
     this.db = new Database(dbPath);
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('foreign_keys = ON');
+    if (namespace && !/^[a-zA-Z0-9_]+$/.test(namespace)) {
+      throw new Error(`Invalid namespace: must be alphanumeric/underscore only, got "${namespace}"`);
+    }
     this.ns = namespace ?? '';
     this.createTables();
   }
@@ -282,8 +285,11 @@ export class SqliteCortexStore implements CortexStore {
     const obsTable = this.t('observations');
     try {
       this.db.exec(`ALTER TABLE ${obsTable} ADD COLUMN content_type TEXT DEFAULT 'declarative'`);
-    } catch {
-      // Column already exists — expected on new DBs or after first migration
+    } catch (err) {
+      const msg = (err as Error).message || '';
+      if (!msg.includes('duplicate column') && !msg.includes('already exists')) {
+        throw err;
+      }
     }
   }
 
@@ -527,7 +533,8 @@ export class SqliteCortexStore implements CortexStore {
     }
 
     const where = conds.length > 0 ? `WHERE ${conds.join(' AND ')}` : '';
-    const limit = filters.limit ? `LIMIT ${filters.limit}` : '';
+    const limit = filters.limit ? 'LIMIT ?' : '';
+    if (filters.limit) vals.push(filters.limit);
 
     return (this.db.prepare(
       `SELECT * FROM ${this.t('ops')} ${where} ORDER BY created_at DESC ${limit}`

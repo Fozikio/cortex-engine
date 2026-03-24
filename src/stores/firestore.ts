@@ -600,4 +600,19 @@ export class FirestoreCortexStore implements CortexStore {
     const snap = await q.get();
     return snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
   }
+
+  async countDocuments(collection: string, filters?: QueryFilter[]): Promise<number> {
+    let q: FirebaseFirestore.Query = this.col(collection);
+    if (filters) {
+      for (const f of filters) {
+        q = q.where(f.field, f.op as FirebaseFirestore.WhereFilterOp, f.value);
+      }
+    }
+    const snap = await q.count().get();
+    return snap.data().count;
+  }
+
+  async delete(collection: string, id: string): Promise<void> {
+    await this.col(collection).doc(id).delete();
+  }
 }

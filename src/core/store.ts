@@ -105,4 +105,10 @@ export interface CortexStore {
     filters: QueryFilter[],
     options?: { limit?: number; orderBy?: string; orderDir?: 'asc' | 'desc' }
   ): Promise<Record<string, unknown>[]>;
+
+  /** Count documents in a named collection, optionally filtered. */
+  countDocuments(collection: string, filters?: QueryFilter[]): Promise<number>;
+
+  /** Delete a document from a named collection by ID. */
+  delete(collection: string, id: string): Promise<void>;
 }

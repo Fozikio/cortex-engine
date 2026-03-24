@@ -659,4 +659,22 @@ export class SqliteCortexStore implements CortexStore {
 
     return options?.limit ? docs.slice(0, options.limit) : docs;
   }
+
+  async countDocuments(collection: string, filters?: QueryFilter[]): Promise<number> {
+    if (!filters || filters.length === 0) {
+      const row = this.db.prepare(
+        `SELECT COUNT(*) as cnt FROM ${this.t('generic_docs')} WHERE collection = ?`
+      ).get(collection) as { cnt: number };
+      return row.cnt;
+    }
+    // For filtered counts, reuse query() and count results
+    const docs = await this.query(collection, filters);
+    return docs.length;
+  }
+
+  async delete(collection: string, id: string): Promise<void> {
+    this.db.prepare(
+      `DELETE FROM ${this.t('generic_docs')} WHERE collection = ? AND id = ?`
+    ).run(collection, id);
+  }
 }

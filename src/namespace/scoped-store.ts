@@ -137,4 +137,12 @@ export class ScopedStore implements CortexStore {
   ): Promise<Record<string, unknown>[]> {
     return this.inner.query(this.prefix + collection, filters, options);
   }
+
+  countDocuments(collection: string, filters?: QueryFilter[]): Promise<number> {
+    return this.inner.countDocuments(this.prefix + collection, filters);
+  }
+
+  delete(collection: string, id: string): Promise<void> {
+    return this.inner.delete(this.prefix + collection, id);
+  }
 }

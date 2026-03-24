@@ -36,7 +36,7 @@ Most AI agents forget everything when the session ends. `cortex-engine` fixes th
 - **Embeddings** — pluggable providers (built-in, OpenAI, Vertex AI, Ollama) — no external service required by default
 - **LLM-agnostic** — pluggable LLM providers: Ollama (free/local), Gemini, DeepSeek, Hugging Face, OpenRouter, OpenAI, or any OpenAI-compatible API
 - **Agent dispatch** — `agent_invoke` lets your agent spawn cheap, cortex-aware sub-tasks using any configured LLM. Knowledge compounds across sessions.
-- **MCP server** — 27 cognitive tools (`query`, `observe`, `believe`, `wander`, `dream`, `goal_set`, `agent_invoke`, etc.) over the Model Context Protocol
+- **MCP server** — 57 cognitive tools (`query`, `observe`, `believe`, `wander`, `dream`, `goal_set`, `agent_invoke`, `thread_create`, `journal_write`, `evolve`, etc.) over the Model Context Protocol
 
 The result: personality and expertise emerge from accumulated experience, not system prompts. An agent with 200 observations about distributed systems doesn't need to be told "you care about distributed systems." It just knows.
 
@@ -49,7 +49,8 @@ Works with Claude Code, Cursor, Windsurf, or any MCP-compatible client. Runs loc
 | `core` | Foundational types, config, and shared utilities |
 | `engines` | Cognitive processing: memory consolidation, FSRS, graph traversal |
 | `stores` | Persistence layer — SQLite (local) and Firestore (cloud) |
-| `mcp` | MCP server and tool definitions |
+| `tools` | All 57 cognitive tool implementations (one file per tool) |
+| `mcp` | MCP server, tool registry, and plugin loader |
 | `cognitive` | Higher-order cognitive operations (dream, wander, validate) |
 | `triggers` | Scheduled and event-driven triggers |
 | `bridges` | Adapters for external services and APIs |
@@ -66,7 +67,7 @@ cd my-agent
 npx fozikio serve   # starts MCP server
 ```
 
-Your agent now has 27 cognitive tools. The generated `.mcp.json` is version-pinned and platform-aware (Windows `cmd /c` wrapper handled automatically).
+Your agent now has 57 cognitive tools. The generated `.mcp.json` is version-pinned and platform-aware (Windows `cmd /c` wrapper handled automatically).
 
 See the **[Quick Start](https://github.com/Fozikio/cortex-engine/wiki/Quick-Start)** wiki page for the full 5-minute setup.
 
@@ -171,24 +172,29 @@ Skills are invocable workflows that agents can use via `/skill-name`.
 2. Copies hooks, skills, and Reflex rules into the target workspace
 3. Missing source files are skipped with a warning — init never fails due to missing assets
 
-## Plugin Ecosystem
+## Built-in Capabilities (v1.0.0+)
 
-cortex-engine ships with 26 cognitive tools out of the box. Plugins add more:
-[Fozikio Plugin Docs](https://www.fozikio.com/products/plugins/)
+As of v1.0.0, all 57 cognitive tools are built into cortex-engine core — no separate plugin installs needed. Previously these were separate `@fozikio/tools-*` packages; they've been absorbed into the engine.
 
-| Plugin | What It Adds |
-|--------|-------------|
-| [@fozikio/tools-threads](https://github.com/Fozikio/tools-threads) | Thought threads — create, update, resolve ongoing lines of thinking |
-| [@fozikio/tools-journal](https://github.com/Fozikio/tools-journal) | Session journaling — structured reflections that persist |
-| [@fozikio/tools-content](https://github.com/Fozikio/tools-content) | Content pipeline — draft, review, publish workflow |
-| [@fozikio/tools-evolution](https://github.com/Fozikio/tools-evolution) | Identity evolution — track how the agent's personality changes over time |
-| [@fozikio/tools-social](https://github.com/Fozikio/tools-social) | Social cognition — interaction patterns, engagement tracking |
-| [@fozikio/tools-graph](https://github.com/Fozikio/tools-graph) | Graph analysis — memory connections, clustering, visualization data |
-| [@fozikio/tools-maintenance](https://github.com/Fozikio/tools-maintenance) | Memory maintenance — cleanup, deduplication, health checks |
-| [@fozikio/tools-vitals](https://github.com/Fozikio/tools-vitals) | Vitals tracking — agent health metrics and operational signals |
-| [@fozikio/tools-reasoning](https://github.com/Fozikio/tools-reasoning) | Cognitive reasoning — abstraction, contradiction detection, surfacing |
+| Capability | Tools |
+|-----------|-------|
+| **Memory** | `observe`, `query`, `recall`, `wander`, `forget`, `retrieve` |
+| **Beliefs & Reasoning** | `believe`, `belief`, `contradict`, `speculate`, `validate`, `predict` |
+| **Threads** | `thread_create`, `thread_update`, `thread_resolve`, `threads_list` |
+| **Journaling** | `journal_write`, `journal_read` |
+| **Identity** | `evolve`, `evolution_list` |
+| **Social** | `social_read`, `social_update`, `social_draft`, `social_score` |
+| **Graph** | `neighbors`, `suggest_links`, `suggest_tags`, `link`, `graph_report` |
+| **Maintenance** | `dream`, `digest`, `reflect`, `find_duplicates`, `retrieval_audit`, `consolidation_status` |
+| **Vitals** | `vitals_get`, `vitals_set`, `sleep_pressure` |
+| **Reasoning** | `surface`, `ruminate`, `notice`, `intention`, `resolve` |
+| **Content** | `content_create`, `content_list`, `content_update` |
+| **Ops** | `ops_append`, `ops_query`, `ops_update` |
+| **Goals** | `goal_set` |
+| **Agents** | `agent_invoke` |
+| **Stats** | `stats` |
 
-Install any plugin: `npm install @fozikio/tools-threads` — cortex-engine auto-discovers and loads installed plugins.
+The plugin system is still available for custom extensions — see [Plugin Docs](https://www.fozikio.com/products/plugins/).
 
 ## Documentation
 

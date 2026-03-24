@@ -1,5 +1,5 @@
 /**
- * Cognition engine — 7-phase dream consolidation cycle.
+ * Cognition engine — 8-phase dream consolidation cycle.
  *
  * Implements the full dream cycle as pure functions: storage-agnostic,
  * provider-injected. Each phase is isolated so a single phase failure
@@ -15,18 +15,19 @@
  *     4. Connect   — discover edges between recently active memories
  *     5. Score     — FSRS passive review for memories in review/learning
  *     6. Abstract  — cross-domain pattern synthesis
- *     7. Report    — narrative summary of the full cycle
+ *     7. Hindsight — audit entrenched memories for silent confidence hardening
+ *     8. Report    — narrative summary of the full cycle
  *
  * Exported entry points:
  *   dreamPhaseA()      — run NREM phases only (cluster -> refine -> create)
- *   dreamPhaseB()      — run REM phases only  (connect -> score -> abstract -> report)
- *   dreamConsolidate() — run all 7 phases (backward-compatible)
+ *   dreamPhaseB()      — run REM phases only  (connect -> score -> abstract -> hindsight -> report)
+ *   dreamConsolidate() — run all 8 phases (backward-compatible)
  */
 
 import type { CortexStore } from '../core/store.js';
 import type { EmbedProvider } from '../core/embed.js';
 import type { LLMProvider } from '../core/llm.js';
-import type { Memory, MemoryCategory, Observation, EdgeRelation } from '../core/types.js';
+import type { Memory, MemoryCategory, Observation, EdgeRelation, BeliefEntry, Edge } from '../core/types.js';
 import { extractKeywords } from './keywords.js';
 import { scheduleNext, newFSRSState, elapsedDaysSince } from './fsrs.js';
 import { computeFiedlerValue, detectPESaturation } from './graph-metrics.js';
@@ -983,8 +984,8 @@ async function hindsightReview(
   for (const memory of sample) {
     try {
       const [beliefHistory, edges] = await Promise.all([
-        store.getBeliefHistory(memory.id).catch(() => [] as import('../core/types.js').BeliefEntry[]),
-        store.getEdgesFrom(memory.id).catch(() => [] as import('../core/types.js').Edge[]),
+        store.getBeliefHistory(memory.id).catch(() => [] as BeliefEntry[]),
+        store.getEdgesFrom(memory.id).catch(() => [] as Edge[]),
       ]);
 
       // Skip memories already explicitly contradicted — Phase 5 scores those via contradiction penalty.
@@ -998,11 +999,15 @@ async function hindsightReview(
           ? `Belief revisions: ${beliefHistory.length} (most recent reason: "${beliefHistory[beliefHistory.length - 1]?.reason ?? 'unknown'}")`
           : 'No belief revisions — this definition has never been challenged or updated.';
 
-      const edgeSummary =
-        edges
-          .slice(0, 8)
-          .map((e) => e.relation)
-          .join(', ') || 'none';
+      // Fetch target names for edge context so the LLM can reason about structural neighbourhood.
+      const edgeLines = await Promise.all(
+        edges.slice(0, 8).map(async (e) => {
+          const target = await store.getMemory(e.target_id).catch(() => null);
+          const label = target ? `"${target.name}"` : e.target_id;
+          return `${e.relation}: ${label}`;
+        }),
+      );
+      const edgeSummary = edgeLines.join('\n') || 'none';
 
       const prompt =
         `You are performing a hindsight review of a belief that has been repeatedly reinforced without ever failing a review or being contradicted.\n\n` +
@@ -1011,7 +1016,7 @@ async function hindsightReview(
         `Category: ${memory.category}\n` +
         `Confidence: ${memory.confidence.toFixed(2)}, FSRS stability: ${memory.fsrs.stability.toFixed(1)} days, Reps: ${memory.fsrs.reps}, Lapses: ${memory.fsrs.lapses}\n` +
         `${historyNote}\n` +
-        `Edge relation types: ${edgeSummary}\n\n` +
+        `Connected concepts:\n${edgeSummary}\n\n` +
         `Critically examine this belief. Consider:\n` +
         `- Could this have hardened through narrow, self-confirming signals rather than diverse evidence?\n` +
         `- Is the definition overstated, incomplete, or context-dependent in ways not captured here?\n` +
@@ -1252,7 +1257,7 @@ export async function dreamPhaseB(
  * Run the full 8-phase dream consolidation cycle.
  *
  * Phase ordering:
- *   1 Cluster -> 2 Refine -> 3 Create -> 4 Connect -> 5 Score -> 6 Abstract -> 8 Hindsight -> 7 Report
+ *   1 Cluster -> 2 Refine -> 3 Create -> 4 Connect -> 5 Score -> 6 Abstract -> 7 Hindsight -> 8 Report
  *
  * Report runs last so it can include all phase stats, Fiedler value, PE, and hindsight results.
  * A phase error is caught internally — the cycle continues with degraded output.
@@ -1309,7 +1314,7 @@ export async function dreamConsolidate(
       : detectPESaturation(store).catch(() => undefined),
   ]);
 
-  // Phase 7 — Report (runs last to include all phase stats)
+  // Phase 8 — Report (runs last to include all phase stats)
   const reportResult = await generateReport(
     llm,
     clusterResult,

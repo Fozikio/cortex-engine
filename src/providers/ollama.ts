@@ -148,9 +148,12 @@ export class OllamaLLMProvider implements LLMProvider {
       systemPrompt = systemPrompt ? `${systemPrompt}\n\n${schemaInstruction}` : schemaInstruction;
     }
 
+    // Disable thinking mode for JSON calls — thinking blocks break JSON output
+    const jsonPrompt = `/no_think\n${prompt}`;
+
     const body: Record<string, unknown> = {
       model: this.modelId,
-      prompt,
+      prompt: jsonPrompt,
       stream: false,
       format: 'json',
       options: {

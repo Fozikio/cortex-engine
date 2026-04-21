@@ -61,6 +61,15 @@ function parseJSON<T>(s: string | null, fallback: T): T {
   try { return JSON.parse(s) as T; } catch { return fallback; }
 }
 
+/** Parse embedding from either JSON text or raw Float32Array blob. */
+function parseEmbedding(data: string | Buffer | null): number[] {
+  if (!data) return [];
+  if (Buffer.isBuffer(data)) {
+    return Array.from(new Float32Array(data.buffer, data.byteOffset, data.byteLength / 4));
+  }
+  try { return JSON.parse(data) as number[]; } catch { return []; }
+}
+
 function prov(row: { prov_model_id?: string | null; prov_model_family?: string | null; prov_client?: string | null; prov_agent?: string | null }): ModelProvenance | undefined {
   if (!row.prov_model_id) return undefined;
   return {
@@ -125,7 +134,7 @@ function rowToMemory(r: MemoryRow): Memory {
     created_at: toDate(r.created_at), updated_at: toDate(r.updated_at),
     last_accessed: toDate(r.last_accessed),
     source_files: parseJSON<string[]>(r.source_files, []),
-    embedding: parseJSON<number[]>(r.embedding, []),
+    embedding: parseEmbedding(r.embedding),
     tags: parseJSON<string[]>(r.tags, []),
     fsrs: {
       stability: r.fsrs_stability, difficulty: r.fsrs_difficulty,
@@ -161,7 +170,7 @@ function rowToObservation(r: ObservationRow): Observation {
     source_section: r.source_section, salience: r.salience,
     processed: r.processed === 1, prediction_error: r.prediction_error,
     created_at: toDate(r.created_at), updated_at: toDate(r.updated_at),
-    embedding: r.embedding ? parseJSON<number[]>(r.embedding, []) : null,
+    embedding: r.embedding ? parseEmbedding(r.embedding) : null,
     keywords: parseJSON<string[]>(r.keywords, []),
     provenance: prov(r),
     content_type: (r.content_type as Observation['content_type']) ?? 'declarative',

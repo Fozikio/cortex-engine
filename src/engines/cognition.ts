@@ -306,6 +306,24 @@ async function refineMemories(
 
       if (!newDefinition || newDefinition.trim() === memory.definition.trim()) continue;
 
+      // Foreign thought detection — reject refined definitions that smell like generic LLM mush.
+      const ftMarkers = [
+        // Gemini-origin markers
+        'this concept', 'this memory concept', 'expanding digital landscape',
+        'fundamentally unknowable', 'critical challenge', 'inevitable future',
+        'broader context', 'deeper understanding', 'multifaceted',
+        'nuanced understanding', 'holistic approach', 'inherent complexity',
+        'paradigm', 'interconnected', 'transformative',
+        // Ollama 14B markers
+        'this pattern unifies', 'this pattern connects', 'this pattern bridges',
+        'this memory concept integrates', 'adaptive knowledge', 'structured coordination',
+      ];
+      const lowerDef = newDefinition.toLowerCase();
+      if (ftMarkers.some(m => lowerDef.includes(m))) continue;
+
+      // Reject definitions with markdown formatting — refined definitions should be plain text
+      if (/^\*\*/.test(newDefinition.trim())) continue;
+
       // Log the belief change before updating.
       const totalEvidence = allEvidence.length;
       await store.putBelief({
@@ -862,10 +880,29 @@ async function abstractCrossDomain(
       });
 
       const trimmed = result.trim();
-      if (!trimmed || trimmed === 'NO_ABSTRACTION') continue;
+      if (!trimmed || trimmed.includes('NO_ABSTRACTION')) continue;
 
       // Validate: must end with sentence-ending punctuation (not truncated mid-sentence)
       if (!/[.!?]$/.test(trimmed)) continue;
+
+      // Foreign thought detection — reject dream output that smells like generic LLM mush.
+      // These markers were identified empirically from Gemini dream contamination (2026-04-02).
+      const foreignThoughtMarkers = [
+        // Gemini-origin markers (identified 2026-04-02)
+        'this concept', 'this memory concept', 'expanding digital landscape',
+        'fundamentally unknowable', 'service gravity', 'critical challenge',
+        'inevitable future', 'broader context', 'deeper understanding',
+        'multifaceted', 'nuanced understanding', 'holistic approach',
+        'inherent complexity', 'paradigm', 'interconnected', 'transformative',
+        // Ollama 14B markers (identified 2026-04-02 from first local dream)
+        'this pattern unifies', 'this pattern connects', 'this pattern bridges',
+        'adaptive knowledge', 'structured coordination', 'transparent boundaries',
+      ];
+      const lower = trimmed.toLowerCase();
+      if (foreignThoughtMarkers.some(m => lower.includes(m))) continue;
+
+      // Reject abstractions with markdown formatting — real thoughts don't need bold/italic wrappers
+      if (/^\*\*Pattern\*\*|^\*\*[A-Z]/.test(trimmed)) continue;
 
       // Check novelty — don't store abstractions too similar to existing memories.
       const abstEmbedding = await embed.embed(trimmed);

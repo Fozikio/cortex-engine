@@ -8,7 +8,7 @@
  * collections written by one namespace don't collide with another.
  */
 
-import type { CortexStore } from '../core/store.js';
+import type { CortexStore, StoreCapabilities } from '../core/store.js';
 import type {
   Memory,
   Observation,
@@ -144,5 +144,45 @@ export class ScopedStore implements CortexStore {
 
   delete(collection: string, id: string): Promise<void> {
     return this.inner.delete(this.prefix + collection, id);
+  }
+
+  // ─── Transactions ─────────────────────────────────────────────────────────
+  // ScopedStore is a thin wrapper; pass through. The inner store owns the
+  // real transaction semantics.
+
+  withTransaction<T>(fn: (txn: CortexStore) => Promise<T>): Promise<T> {
+    return this.inner.withTransaction(fn);
+  }
+
+  // ─── Upserts ──────────────────────────────────────────────────────────────
+
+  upsertMemory(memory: Memory): Promise<void> {
+    return this.inner.upsertMemory(memory);
+  }
+
+  upsertObservation(obs: Observation): Promise<void> {
+    return this.inner.upsertObservation(obs);
+  }
+
+  upsertEdge(edge: Edge): Promise<void> {
+    return this.inner.upsertEdge(edge);
+  }
+
+  upsertOpsEntry(entry: OpsEntry): Promise<void> {
+    return this.inner.upsertOpsEntry(entry);
+  }
+
+  upsertSignal(signal: Signal): Promise<void> {
+    return this.inner.upsertSignal(signal);
+  }
+
+  upsertBelief(belief: BeliefEntry): Promise<void> {
+    return this.inner.upsertBelief(belief);
+  }
+
+  // ─── Capabilities ─────────────────────────────────────────────────────────
+
+  getCapabilities(): Promise<StoreCapabilities> {
+    return this.inner.getCapabilities();
   }
 }

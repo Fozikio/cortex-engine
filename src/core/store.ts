@@ -1,7 +1,8 @@
 /**
  * CortexStore — storage abstraction for cortex-engine.
  *
- * Implementations: FirestoreCortexStore (cloud), SqliteCortexStore (local).
+ * Implementations: FirestoreCortexStore (cloud), SqliteCortexStore (local),
+ * JsonCortexStore (file-backed, for backup/migration).
  * All methods operate on plain JS objects (no Firestore Timestamps, no VectorValue).
  */
 
@@ -17,6 +18,26 @@ import type {
   QueryFilter,
   FSRSData,
 } from './types.js';
+
+/**
+ * Bumped when the CortexStore wire format changes in a way that breaks
+ * round-trip migration. Used by getCapabilities() during migrate to refuse
+ * incompatible source/destination pairs.
+ */
+export const CORTEX_STORE_SCHEMA_VERSION = 1;
+
+export interface StoreCapabilities {
+  /** Bumped on breaking interface/wire-format changes; see CORTEX_STORE_SCHEMA_VERSION. */
+  schemaVersion: number;
+  /** Length of the first stored memory's embedding, or 0 if the store is empty. */
+  embeddingDimension: number;
+  /** Distinct Memory.category values observed in the store (best-effort, may be empty). */
+  categories: string[];
+  /** The namespace prefix the store is bound to ('' for the default namespace). */
+  namespace: string;
+  /** Identifier for the backend implementation. */
+  backend: 'sqlite' | 'firestore' | 'json';
+}
 
 export interface CortexStore {
   // ─── Memory ──────────────────────────────────────────────────────────────────
@@ -116,4 +137,49 @@ export interface CortexStore {
 
   /** Delete a document from a named collection by ID. */
   delete(collection: string, id: string): Promise<void>;
+
+  // ─── Transactions ────────────────────────────────────────────────────────────
+
+  /**
+   * Run `fn` inside a backend-native transaction. All writes commit atomically
+   * on resolve; any thrown error rolls back. The proxy passed to `fn` is the
+   * same store instance — call store methods on it normally.
+   *
+   * SQLite constraint: the body of `fn` MUST NOT await external systems
+   * (LLM calls, network). Store operations themselves are safe because
+   * better-sqlite3 is synchronous under the async wrapper.
+   *
+   * See docs/concurrency.md for the full contract.
+   */
+  withTransaction<T>(fn: (txn: CortexStore) => Promise<T>): Promise<T>;
+
+  // ─── Upsert (ID-preserving) ─────────────────────────────────────────────────
+  // Used by store-migration tooling. Unlike put*() which mints UUIDs, these
+  // preserve the provided ID so links and references survive cloning.
+
+  /** Insert or replace a memory by its existing ID. */
+  upsertMemory(memory: Memory): Promise<void>;
+
+  /** Insert or replace an observation by its existing ID. */
+  upsertObservation(obs: Observation): Promise<void>;
+
+  /** Insert or replace an edge by its existing ID. */
+  upsertEdge(edge: Edge): Promise<void>;
+
+  /** Insert or replace an ops entry by its existing ID. */
+  upsertOpsEntry(entry: OpsEntry): Promise<void>;
+
+  /** Insert or replace a signal by its existing ID. */
+  upsertSignal(signal: Signal): Promise<void>;
+
+  /** Insert or replace a belief entry by its existing ID. */
+  upsertBelief(belief: BeliefEntry): Promise<void>;
+
+  // ─── Capabilities ───────────────────────────────────────────────────────────
+
+  /**
+   * Return a snapshot of store metadata used by the migration tool to detect
+   * incompatible source/destination pairs before mutating data.
+   */
+  getCapabilities(): Promise<StoreCapabilities>;
 }

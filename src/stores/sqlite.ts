@@ -9,7 +9,8 @@
 import Database from 'better-sqlite3';
 import type { Database as DatabaseType } from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
-import type { CortexStore } from '../core/store.js';
+import type { CortexStore, StoreCapabilities } from '../core/store.js';
+import { CORTEX_STORE_SCHEMA_VERSION } from '../core/store.js';
 import { validateNamespace } from './_validate.js';
 import type {
   Memory,
@@ -703,5 +704,139 @@ export class SqliteCortexStore implements CortexStore {
     this.db.prepare(
       `DELETE FROM ${this.t('generic_docs')} WHERE collection = ? AND id = ?`
     ).run(collection, id);
+  }
+
+  // ─── Transactions ──────────────────────────────────────────────────────────
+  // PRELUDE STUB: non-atomic passthrough. Agent A replaces with a real
+  // better-sqlite3 transaction wrapper. See
+  // docs/superpowers/specs/2026-05-16-concurrency-audit-design.md.
+
+  async withTransaction<T>(fn: (txn: CortexStore) => Promise<T>): Promise<T> {
+    return await fn(this);
+  }
+
+  // ─── Upserts (ID-preserving) ───────────────────────────────────────────────
+  // Used by store-migration. See
+  // docs/superpowers/specs/2026-05-16-store-migration-design.md.
+
+  async upsertMemory(memory: Memory): Promise<void> {
+    this.db.prepare(`INSERT OR REPLACE INTO ${this.t('memories')} (
+      id, name, definition, category, salience, confidence, access_count,
+      created_at, updated_at, last_accessed, source_files, embedding, tags,
+      fsrs_stability, fsrs_difficulty, fsrs_reps, fsrs_lapses, fsrs_state, fsrs_last_review,
+      faded, salience_original, prov_model_id, prov_model_family, prov_client, prov_agent
+    ) VALUES (
+      @id, @name, @definition, @category, @salience, @confidence, @access_count,
+      @created_at, @updated_at, @last_accessed, @source_files, @embedding, @tags,
+      @fsrs_stability, @fsrs_difficulty, @fsrs_reps, @fsrs_lapses, @fsrs_state, @fsrs_last_review,
+      @faded, @salience_original, @prov_model_id, @prov_model_family, @prov_client, @prov_agent
+    )`).run({
+      id: memory.id, name: memory.name, definition: memory.definition,
+      category: memory.category, salience: memory.salience,
+      confidence: memory.confidence, access_count: memory.access_count,
+      created_at: toISO(memory.created_at), updated_at: toISO(memory.updated_at),
+      last_accessed: toISO(memory.last_accessed),
+      source_files: JSON.stringify(memory.source_files ?? []),
+      embedding: JSON.stringify(memory.embedding ?? []),
+      tags: JSON.stringify(memory.tags ?? []),
+      fsrs_stability: memory.fsrs.stability, fsrs_difficulty: memory.fsrs.difficulty,
+      fsrs_reps: memory.fsrs.reps, fsrs_lapses: memory.fsrs.lapses,
+      fsrs_state: memory.fsrs.state,
+      fsrs_last_review: memory.fsrs.last_review?.toISOString() ?? null,
+      faded: memory.faded ? 1 : 0, salience_original: memory.salience_original ?? null,
+      prov_model_id: memory.provenance?.model_id ?? null,
+      prov_model_family: memory.provenance?.model_family ?? null,
+      prov_client: memory.provenance?.client ?? null,
+      prov_agent: memory.provenance?.agent ?? null,
+    });
+  }
+
+  async upsertObservation(obs: Observation): Promise<void> {
+    this.db.prepare(`INSERT OR REPLACE INTO ${this.t('observations')} (
+      id, content, source_file, source_section, salience, processed,
+      prediction_error, created_at, updated_at, embedding, keywords,
+      content_type, prov_model_id, prov_model_family, prov_client, prov_agent
+    ) VALUES (
+      @id, @content, @sf, @ss, @sal, @proc, @pe, @ca, @ua, @emb, @kw,
+      @ct, @pmi, @pmf, @pc, @pa
+    )`).run({
+      id: obs.id, content: obs.content, sf: obs.source_file, ss: obs.source_section,
+      sal: obs.salience, proc: obs.processed ? 1 : 0,
+      pe: obs.prediction_error ?? null,
+      ca: toISO(obs.created_at), ua: toISO(obs.updated_at),
+      emb: obs.embedding ? JSON.stringify(obs.embedding) : null,
+      kw: JSON.stringify(obs.keywords ?? []),
+      ct: obs.content_type ?? 'declarative',
+      pmi: obs.provenance?.model_id ?? null, pmf: obs.provenance?.model_family ?? null,
+      pc: obs.provenance?.client ?? null, pa: obs.provenance?.agent ?? null,
+    });
+  }
+
+  async upsertEdge(edge: Edge): Promise<void> {
+    this.db.prepare(`INSERT OR REPLACE INTO ${this.t('edges')} (
+      id, source_id, target_id, relation, weight, evidence, created_at
+    ) VALUES (@id, @si, @ti, @rel, @w, @ev, @ca)`).run({
+      id: edge.id, si: edge.source_id, ti: edge.target_id,
+      rel: edge.relation, w: edge.weight, ev: edge.evidence,
+      ca: toISO(edge.created_at),
+    });
+  }
+
+  async upsertOpsEntry(entry: OpsEntry): Promise<void> {
+    this.db.prepare(`INSERT OR REPLACE INTO ${this.t('ops')} (
+      id, content, type, status, project, session_ref, keywords,
+      created_at, updated_at, expires_at,
+      prov_model_id, prov_model_family, prov_client, prov_agent
+    ) VALUES (
+      @id, @content, @type, @status, @project, @sr, @kw,
+      @ca, @ua, @ea, @pmi, @pmf, @pc, @pa
+    )`).run({
+      id: entry.id, content: entry.content, type: entry.type, status: entry.status,
+      project: entry.project ?? null, sr: entry.session_ref,
+      kw: JSON.stringify(entry.keywords ?? []),
+      ca: toISO(entry.created_at), ua: toISO(entry.updated_at), ea: toISO(entry.expires_at),
+      pmi: entry.provenance?.model_id ?? null, pmf: entry.provenance?.model_family ?? null,
+      pc: entry.provenance?.client ?? null, pa: entry.provenance?.agent ?? null,
+    });
+  }
+
+  async upsertSignal(signal: Signal): Promise<void> {
+    this.db.prepare(`INSERT OR REPLACE INTO ${this.t('signals')} (
+      id, type, description, concept_ids, priority, resolved, created_at, resolution_note
+    ) VALUES (@id, @type, @desc, @cids, @pri, @res, @ca, @rn)`).run({
+      id: signal.id, type: signal.type, desc: signal.description,
+      cids: JSON.stringify(signal.concept_ids ?? []),
+      pri: signal.priority, res: signal.resolved ? 1 : 0,
+      ca: toISO(signal.created_at), rn: signal.resolution_note ?? null,
+    });
+  }
+
+  async upsertBelief(belief: BeliefEntry): Promise<void> {
+    this.db.prepare(`INSERT OR REPLACE INTO ${this.t('beliefs')} (
+      id, concept_id, old_definition, new_definition, reason, changed_at
+    ) VALUES (@id, @cid, @od, @nd, @r, @ca)`).run({
+      id: belief.id, cid: belief.concept_id, od: belief.old_definition,
+      nd: belief.new_definition, r: belief.reason, ca: toISO(belief.changed_at),
+    });
+  }
+
+  async getCapabilities(): Promise<StoreCapabilities> {
+    const firstRow = this.db.prepare(
+      `SELECT embedding FROM ${this.t('memories')} LIMIT 1`
+    ).get() as { embedding: string | Buffer } | undefined;
+
+    const embeddingDimension = firstRow ? parseEmbedding(firstRow.embedding).length : 0;
+
+    const catRows = this.db.prepare(
+      `SELECT DISTINCT category FROM ${this.t('memories')}`
+    ).all() as { category: string }[];
+
+    return {
+      schemaVersion: CORTEX_STORE_SCHEMA_VERSION,
+      embeddingDimension,
+      categories: catRows.map(r => r.category),
+      namespace: this.ns,
+      backend: 'sqlite',
+    };
   }
 }

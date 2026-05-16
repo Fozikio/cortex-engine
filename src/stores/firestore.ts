@@ -10,7 +10,8 @@
  */
 
 import type { Firestore, CollectionReference, DocumentData, FieldValue as FieldValueType } from '@google-cloud/firestore';
-import type { CortexStore } from '../core/store.js';
+import type { CortexStore, StoreCapabilities } from '../core/store.js';
+import { CORTEX_STORE_SCHEMA_VERSION } from '../core/store.js';
 import { validateNamespace } from './_validate.js';
 import type {
   Memory,
@@ -619,5 +620,136 @@ export class FirestoreCortexStore implements CortexStore {
 
   async delete(collection: string, id: string): Promise<void> {
     await this.col(collection).doc(id).delete();
+  }
+
+  // ─── Transactions ──────────────────────────────────────────────────────────
+  // PRELUDE STUB: non-atomic passthrough. Agent A replaces with Firestore
+  // runTransaction wrapper. See
+  // docs/superpowers/specs/2026-05-16-concurrency-audit-design.md.
+
+  async withTransaction<T>(fn: (txn: CortexStore) => Promise<T>): Promise<T> {
+    return await fn(this);
+  }
+
+  // ─── Upserts (ID-preserving) ───────────────────────────────────────────────
+  // Used by store-migration. See
+  // docs/superpowers/specs/2026-05-16-store-migration-design.md.
+
+  async upsertMemory(memory: Memory): Promise<void> {
+    await this.col('memories').doc(memory.id).set({
+      name: memory.name,
+      definition: memory.definition,
+      category: memory.category,
+      salience: memory.salience,
+      confidence: memory.confidence,
+      access_count: memory.access_count,
+      created_at: toTimestamp(memory.created_at),
+      updated_at: toTimestamp(memory.updated_at),
+      last_accessed: toTimestamp(memory.last_accessed),
+      source_files: memory.source_files ?? [],
+      embedding: memory.embedding?.length ? toVector(memory.embedding) : [],
+      tags: memory.tags ?? [],
+      fsrs: {
+        stability: memory.fsrs.stability,
+        difficulty: memory.fsrs.difficulty,
+        reps: memory.fsrs.reps,
+        lapses: memory.fsrs.lapses,
+        state: memory.fsrs.state,
+        last_review: memory.fsrs.last_review ? toTimestamp(memory.fsrs.last_review) : null,
+      },
+      faded: memory.faded ?? false,
+      salience_original: memory.salience_original ?? null,
+      provenance: provenanceData(memory.provenance) ?? null,
+    });
+  }
+
+  async upsertObservation(obs: Observation): Promise<void> {
+    await this.col('observations').doc(obs.id).set({
+      content: obs.content,
+      source_file: obs.source_file,
+      source_section: obs.source_section,
+      salience: obs.salience,
+      processed: obs.processed,
+      prediction_error: obs.prediction_error ?? null,
+      created_at: toTimestamp(obs.created_at),
+      updated_at: toTimestamp(obs.updated_at),
+      embedding: obs.embedding?.length ? toVector(obs.embedding) : null,
+      keywords: obs.keywords ?? [],
+      content_type: obs.content_type ?? 'declarative',
+      provenance: provenanceData(obs.provenance) ?? null,
+    });
+  }
+
+  async upsertEdge(edge: Edge): Promise<void> {
+    await this.col('edges').doc(edge.id).set({
+      source_id: edge.source_id,
+      target_id: edge.target_id,
+      relation: edge.relation,
+      weight: edge.weight,
+      evidence: edge.evidence,
+      created_at: toTimestamp(edge.created_at),
+    });
+  }
+
+  async upsertOpsEntry(entry: OpsEntry): Promise<void> {
+    await this.col('ops').doc(entry.id).set({
+      content: entry.content,
+      type: entry.type,
+      status: entry.status,
+      project: entry.project ?? null,
+      session_ref: entry.session_ref,
+      keywords: entry.keywords ?? [],
+      created_at: toTimestamp(entry.created_at),
+      updated_at: toTimestamp(entry.updated_at),
+      expires_at: toTimestamp(entry.expires_at),
+      provenance: provenanceData(entry.provenance) ?? null,
+    });
+  }
+
+  async upsertSignal(signal: Signal): Promise<void> {
+    await this.col('signals').doc(signal.id).set({
+      type: signal.type,
+      description: signal.description,
+      concept_ids: signal.concept_ids ?? [],
+      priority: signal.priority,
+      resolved: signal.resolved,
+      created_at: toTimestamp(signal.created_at),
+      resolution_note: signal.resolution_note ?? null,
+    });
+  }
+
+  async upsertBelief(belief: BeliefEntry): Promise<void> {
+    await this.col('beliefs').doc(belief.id).set({
+      concept_id: belief.concept_id,
+      old_definition: belief.old_definition,
+      new_definition: belief.new_definition,
+      reason: belief.reason,
+      changed_at: toTimestamp(belief.changed_at),
+    });
+  }
+
+  async getCapabilities(): Promise<StoreCapabilities> {
+    const firstSnap = await this.col('memories').limit(1).get();
+    let embeddingDimension = 0;
+    if (!firstSnap.empty) {
+      const data = firstSnap.docs[0].data();
+      embeddingDimension = fromVector(data.embedding).length;
+    }
+
+    // Firestore has no DISTINCT; sample the first 100 memories for categories.
+    const sampleSnap = await this.col('memories').limit(100).get();
+    const categorySet = new Set<string>();
+    sampleSnap.docs.forEach(doc => {
+      const cat = doc.data().category;
+      if (typeof cat === 'string') categorySet.add(cat);
+    });
+
+    return {
+      schemaVersion: CORTEX_STORE_SCHEMA_VERSION,
+      embeddingDimension,
+      categories: [...categorySet],
+      namespace: this.ns,
+      backend: 'firestore',
+    };
   }
 }

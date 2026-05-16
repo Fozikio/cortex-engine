@@ -86,7 +86,7 @@ interface MemoryRow {
   id: string; name: string; definition: string; category: string;
   salience: number; confidence: number; access_count: number;
   created_at: string; updated_at: string; last_accessed: string;
-  source_files: string; embedding: string; tags: string;
+  source_files: string; embedding: string | Buffer; tags: string;
   fsrs_stability: number; fsrs_difficulty: number; fsrs_reps: number;
   fsrs_lapses: number; fsrs_state: string; fsrs_last_review: string | null;
   faded: number; salience_original: number | null;
@@ -379,13 +379,15 @@ export class SqliteCortexStore implements CortexStore {
 
   async findNearest(embedding: number[], limit: number): Promise<SearchResult[]> {
     const rows = this.db.prepare(
-      `SELECT * FROM ${this.t('memories')} WHERE faded = 0 AND embedding != '[]'`
+      `SELECT * FROM ${this.t('memories')} WHERE faded = 0`
     ).all() as MemoryRow[];
 
     return rows
-      .map(row => ({
+      .map(row => ({ row, stored: parseEmbedding(row.embedding) }))
+      .filter(({ stored }) => stored.length > 0)
+      .map(({ row, stored }) => ({
         row,
-        score: cosineSimilarity(embedding, parseJSON<number[]>(row.embedding, [])),
+        score: cosineSimilarity(embedding, stored),
       }))
       .sort((a, b) => b.score - a.score)
       .slice(0, limit)

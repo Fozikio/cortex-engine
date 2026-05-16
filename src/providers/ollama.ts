@@ -76,12 +76,19 @@ export class OllamaEmbedProvider implements EmbedProvider {
   }
 
   async embed(text: string): Promise<number[]> {
+    if (!text || !text.trim()) {
+      throw new Error('OllamaEmbedProvider.embed: refusing to embed empty text — caller likely has an upstream bug.');
+    }
     const data = await ollamaPost<OllamaEmbedResponse>(
       this.baseUrl,
       '/api/embed',
       { model: this.model, input: text },
     );
-    return data.embeddings[0];
+    const first = data.embeddings?.[0];
+    if (!first || first.length === 0) {
+      throw new Error(`OllamaEmbedProvider.embed: Ollama returned no embedding for model "${this.model}". Is the model pulled?`);
+    }
+    return first;
   }
 
   async embedBatch(texts: string[]): Promise<number[][]> {

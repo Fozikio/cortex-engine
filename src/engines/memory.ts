@@ -104,8 +104,11 @@ export async function hydeExpand(
   llm: LLMProvider,
   embed: EmbedProvider
 ): Promise<number[]> {
+  // /no_think suppresses reasoning-mode <think>...</think> output for thinking
+  // models (qwen3, phi4-reasoning). Without it, a small maxTokens budget can be
+  // entirely consumed by the thinking block, leaving an empty final answer.
   const hypothetical = await llm.generate(
-    `Write a short, factual passage (2-3 sentences) that would answer this question or describe this concept. Do not include any preamble — just the passage.\n\nQuery: ${query}`,
+    `/no_think\nWrite a short, factual passage (2-3 sentences) that would answer this question or describe this concept. Do not include any preamble — just the passage.\n\nQuery: ${query}`,
     {
       temperature: 0.3,
       maxTokens: 200,
@@ -113,7 +116,11 @@ export async function hydeExpand(
     }
   );
 
-  return embed.embed(hypothetical);
+  // Fallback: if the LLM still returns nothing (provider quirk, prompt
+  // filtering, etc.), embed the raw query so the search degrades gracefully
+  // to the non-HyDE behavior instead of crashing downstream consumers.
+  const text = hypothetical?.trim() ? hypothetical : query;
+  return embed.embed(text);
 }
 
 /**
@@ -188,7 +195,7 @@ export async function spreadActivation(
 
       // Query-conditioned weighting: bias toward query-relevant branches.
       // Clamp to [0.1, 1.0] — don't zero out irrelevant paths, just downweight them.
-      if (queryEmbedding && memory.embedding.length > 0) {
+      if (queryEmbedding && memory.embedding && memory.embedding.length > 0) {
         const relevance = cosineSimilarity(queryEmbedding, memory.embedding);
         propagatedScore *= Math.max(0.1, relevance);
       }

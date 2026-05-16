@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.1.1] — 2026-05-16
+
+### Fixed
+
+- **HyDE query crash on empty LLM output** — `query(hyde: true)` could crash with `Cannot read properties of undefined (reading 'length')` when a reasoning-mode LLM (qwen3, phi4-reasoning, etc.) consumed the entire `maxTokens` budget on the `<think>...</think>` block, leaving an empty final response. `stripThinking()` then yielded `""`, and `OllamaEmbedProvider.embed("")` returned `undefined` (Ollama returns `embeddings: []` for empty input, and `[][0]` is `undefined`). The undefined embedding propagated as the query vector and crashed on `.length` access in spread activation.
+
+  Three layers of fix:
+  - `hydeExpand` (`src/engines/memory.ts`) — prepends `/no_think` to suppress reasoning-mode output (mirroring the pattern `generateJSON` already used), and falls back to embedding the raw query if the LLM still produces empty output.
+  - `OllamaEmbedProvider.embed` (`src/providers/ollama.ts`) — throws on empty input and validates the response has a non-empty embedding (fail-fast instead of returning `undefined`).
+  - `spreadActivation` (`src/engines/memory.ts`) — defensive null guard on `memory.embedding.length`, matching the optional-chaining pattern already used elsewhere in the function (`Memory.embedding` is typed `number[] | null`).
+
+### Added
+
+- **HyDE fallback regression test** (`src/engines/hyde-fallback.test.ts`) — covers empty LLM output, whitespace-only output, and substantive output paths.
+- **Spread-activation null-embedding regression test** (`src/engines/spread-activation.test.ts`) — covers the previously-unguarded `memory.embedding.length` access.
+- **`scripts/verify-hyde-fix.mjs`** — standalone Node script that exercises the HyDE → findNearest → spreadActivation chain against a live SQLite store, useful for debugging future query path crashes.
+
+---
+
 ## [1.1.0] — 2026-03-24
 
 ### Added

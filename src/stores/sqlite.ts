@@ -10,6 +10,7 @@ import Database from 'better-sqlite3';
 import type { Database as DatabaseType } from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
 import type { CortexStore } from '../core/store.js';
+import { validateNamespace } from './_validate.js';
 import type {
   Memory,
   MemorySummary,
@@ -268,12 +269,10 @@ export class SqliteCortexStore implements CortexStore {
   private ns: string;
 
   constructor(dbPath: string, namespace?: string) {
+    validateNamespace(namespace);
     this.db = new Database(dbPath);
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('foreign_keys = ON');
-    if (namespace && !/^[a-zA-Z0-9_]+$/.test(namespace)) {
-      throw new Error(`Invalid namespace: must be alphanumeric/underscore only, got "${namespace}"`);
-    }
     this.ns = namespace ?? '';
     this.createTables();
   }
@@ -295,10 +294,14 @@ export class SqliteCortexStore implements CortexStore {
     try {
       this.db.exec(`ALTER TABLE ${obsTable} ADD COLUMN content_type TEXT DEFAULT 'declarative'`);
     } catch (err) {
-      const msg = (err as Error).message || '';
-      if (!msg.includes('duplicate column') && !msg.includes('already exists')) {
-        throw err;
-      }
+      // better-sqlite3 surfaces ALTER TABLE errors via the `code` property.
+      // SQLITE_ERROR with "duplicate column" / "already exists" is the
+      // expected re-run case; anything else (disk full, locked DB, schema
+      // corruption) must propagate so the operator can diagnose it.
+      const code = (err as { code?: string }).code;
+      const msg = (err as Error).message ?? '';
+      const isDuplicate = code === 'SQLITE_ERROR' && (msg.includes('duplicate column') || msg.includes('already exists'));
+      if (!isDuplicate) throw err;
     }
   }
 

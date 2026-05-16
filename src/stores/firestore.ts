@@ -11,6 +11,7 @@
 
 import type { Firestore, CollectionReference, DocumentData, FieldValue as FieldValueType } from '@google-cloud/firestore';
 import type { CortexStore } from '../core/store.js';
+import { validateNamespace } from './_validate.js';
 import type {
   Memory,
   MemorySummary,
@@ -226,6 +227,7 @@ export class FirestoreCortexStore implements CortexStore {
   private ns: string;
 
   constructor(db: Firestore, namespace?: string, fieldValue?: typeof FieldValueType) {
+    validateNamespace(namespace);
     this.db = db;
     this.ns = namespace ?? '';
     if (fieldValue) {
@@ -574,8 +576,11 @@ export class FirestoreCortexStore implements CortexStore {
   }
 
   async update(collection: string, id: string, updates: Record<string, unknown>): Promise<void> {
+    const ref = this.col(collection).doc(id);
+    const snap = await ref.get();
+    if (!snap.exists) throw new Error(`Document not found: ${collection}/${id}`);
     const { id: _id, ...rest } = updates;
-    await this.col(collection).doc(id).update(rest);
+    await ref.update(rest);
   }
 
   async query(

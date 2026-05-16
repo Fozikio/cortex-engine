@@ -19,7 +19,13 @@ import type { CortexConfig, AgentConfig, AgentEntry } from '../core/config.js';
 interface NamedCortexEntry {
   store?: string;
   embed?: string;
+  llm?: string;
   primary?: boolean;
+  collections_prefix?: string;
+  cognitive_tools?: string[];
+  llm_options?: CortexConfig['llm_options'];
+  embed_options?: CortexConfig['embed_options'];
+  store_options?: CortexConfig['store_options'];
 }
 
 /**
@@ -38,6 +44,12 @@ function isNamedCortexMap(cortex: unknown): cortex is Record<string, NamedCortex
 /**
  * Extract a CortexConfig from a named cortex map (agent.yaml new format).
  * Finds the entry marked `primary: true`, or falls back to the first entry.
+ *
+ * Pulls provider-level fields (store/embed/llm and their *_options blocks)
+ * onto the partial config. If the entry declares `cognitive_tools` or a
+ * custom `collections_prefix`, pre-populates `partial.namespaces[entryName]`
+ * so applyAgentScope later preserves the explicit config instead of
+ * injecting the default 5-tool set.
  */
 function extractFromNamedCortexMap(cortexMap: Record<string, NamedCortexEntry>): Partial<CortexConfig> {
   const entries = Object.entries(cortexMap);
@@ -45,14 +57,31 @@ function extractFromNamedCortexMap(cortexMap: Record<string, NamedCortexEntry>):
 
   if (!primary) return {};
 
-  const [, entry] = primary;
+  const [namespaceName, entry] = primary;
   const partial: Partial<CortexConfig> = {};
 
   if (entry.store === 'sqlite' || entry.store === 'firestore') {
     partial.store = entry.store;
   }
-  if (entry.embed === 'ollama' || entry.embed === 'vertex' || entry.embed === 'openai') {
+  if (entry.embed === 'built-in' || entry.embed === 'ollama' || entry.embed === 'vertex' || entry.embed === 'openai') {
     partial.embed = entry.embed;
+  }
+  if (entry.llm === 'ollama' || entry.llm === 'gemini' || entry.llm === 'anthropic' || entry.llm === 'openai' || entry.llm === 'kimi') {
+    partial.llm = entry.llm;
+  }
+  if (entry.llm_options) partial.llm_options = entry.llm_options;
+  if (entry.embed_options) partial.embed_options = entry.embed_options;
+  if (entry.store_options) partial.store_options = entry.store_options;
+
+  if (entry.cognitive_tools || entry.collections_prefix) {
+    partial.namespaces = {
+      ...DEFAULT_CONFIG.namespaces,
+      [namespaceName]: {
+        description: `Namespace for ${namespaceName}`,
+        cognitive_tools: entry.cognitive_tools ?? ['observe', 'query', 'recall', 'neighbors', 'predict'],
+        collections_prefix: entry.collections_prefix ?? `${namespaceName}_`,
+      },
+    };
   }
 
   return partial;

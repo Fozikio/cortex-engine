@@ -63,7 +63,7 @@ function extractFromNamedCortexMap(cortexMap: Record<string, NamedCortexEntry>):
   if (entry.store === 'sqlite' || entry.store === 'firestore') {
     partial.store = entry.store;
   }
-  if (entry.embed === 'built-in' || entry.embed === 'ollama' || entry.embed === 'vertex' || entry.embed === 'openai') {
+  if (entry.embed === 'built-in' || entry.embed === 'ollama' || entry.embed === 'vertex') {
     partial.embed = entry.embed;
   }
   if (entry.llm === 'ollama' || entry.llm === 'gemini' || entry.llm === 'anthropic' || entry.llm === 'openai' || entry.llm === 'kimi') {

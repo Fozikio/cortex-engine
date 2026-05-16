@@ -66,8 +66,8 @@ export interface CortexConfig {
   /** Storage backend: 'sqlite' | 'firestore' */
   store: 'sqlite' | 'firestore';
 
-  /** Embedding provider: 'built-in' (default, no setup) | 'ollama' | 'vertex' | 'openai' */
-  embed: 'built-in' | 'ollama' | 'vertex' | 'openai';
+  /** Embedding provider: 'built-in' (default, no setup) | 'ollama' | 'vertex' */
+  embed: 'built-in' | 'ollama' | 'vertex';
 
   /** LLM provider: 'ollama' | 'gemini' | 'anthropic' | 'openai' | 'kimi' */
   llm: 'ollama' | 'gemini' | 'anthropic' | 'openai' | 'kimi';

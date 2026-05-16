@@ -1,7 +1,11 @@
 /**
  * EmbedProvider — embedding abstraction for cortex-engine.
  *
- * Implementations: VertexEmbedProvider, OllamaEmbedProvider, OpenAIEmbedProvider.
+ * Implementations: BuiltInEmbedProvider (default), OllamaEmbedProvider, VertexEmbedProvider.
+ *
+ * TODO: add an OpenAIEmbedProvider for text-embedding-3-small/large. The 'openai'
+ * config value was removed from CortexConfig['embed'] when the union was
+ * tightened to match what mcp/server.ts createEmbedProvider() actually handles.
  */
 
 export interface EmbedProvider {

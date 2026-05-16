@@ -98,7 +98,7 @@ interface ParsedConfigArgs {
 }
 
 const VALID_STORES: ReadonlyArray<CortexConfig['store']> = ['sqlite', 'firestore'];
-const VALID_EMBEDS: ReadonlyArray<CortexConfig['embed']> = ['ollama', 'vertex', 'openai'];
+const VALID_EMBEDS: ReadonlyArray<CortexConfig['embed']> = ['built-in', 'ollama', 'vertex'];
 const VALID_LLMS: ReadonlyArray<CortexConfig['llm']> = ['ollama', 'gemini', 'anthropic', 'openai'];
 
 function parseArgs(args: string[]): ParsedConfigArgs {

@@ -151,6 +151,12 @@ switch (command) {
     const restToken = tokenIdx !== -1 && rest[tokenIdx + 1]
       ? rest[tokenIdx + 1]
       : undefined;
+    const hostIdx = rest.indexOf('--host');
+    const restHost = hostIdx !== -1 && rest[hostIdx + 1]
+      ? rest[hostIdx + 1]
+      : undefined;
+    const allowUnauthenticated = rest.includes('--allow-unauthenticated');
+    const allowCorsLocalhost = rest.includes('--allow-cors-localhost');
 
     (async () => {
       let config;
@@ -172,7 +178,13 @@ switch (command) {
       if (useRest) {
         // REST-only mode — HTTP server, no stdio MCP
         const engine = await createContext(config);
-        await startRestServer(engine, { port: restPort, token: restToken });
+        await startRestServer(engine, {
+          port: restPort,
+          host: restHost,
+          token: restToken,
+          allowUnauthenticated,
+          allowCorsLocalhost,
+        });
       } else {
         // Default: MCP stdio server
         await startServer(config);

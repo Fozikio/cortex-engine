@@ -15,7 +15,7 @@
 import { createServer as createHttpServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
 import { readFileSync, existsSync, statSync } from 'node:fs';
-import { join, dirname, extname, resolve } from 'node:path';
+import { join, dirname, extname, resolve, relative, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { EngineContext } from '../mcp/server.js';
 import type { ToolDefinition } from '../mcp/tools.js';
@@ -255,7 +255,7 @@ route('GET', '/api/home', async (_req, res, _params, engine) => {
 // Concepts (memories exposed under the dashboard's preferred name)
 route('GET', '/api/concepts', async (req, res, _params, engine) => {
   const url = new URL(req.url!, `http://localhost`);
-  const limit = parseInt(url.searchParams.get('limit') ?? '100', 10);
+  const limit = Math.min(parseInt(url.searchParams.get('limit') ?? '100', 10), 1000);
   const offset = parseInt(url.searchParams.get('offset') ?? '0', 10);
   const store = engine.ctx.namespaces.getStore();
   const allMemories = await store.getAllMemories();
@@ -283,7 +283,7 @@ route('GET', '/api/concepts', async (req, res, _params, engine) => {
 
 route('GET', '/api/memories', async (req, res, _params, engine) => {
   const url = new URL(req.url!, `http://localhost`);
-  const limit = parseInt(url.searchParams.get('limit') ?? '50', 10);
+  const limit = Math.min(parseInt(url.searchParams.get('limit') ?? '50', 10), 1000);
   const offset = parseInt(url.searchParams.get('offset') ?? '0', 10);
   // Use the namespace manager to get the default store
   const store = engine.ctx.namespaces.getStore();
@@ -325,7 +325,7 @@ route('POST', '/api/v2/ops', async (req, res, _params, engine) => {
 
 route('PATCH', '/api/v2/ops/:id', async (req, res, params, engine) => {
   const body = await readBody(req);
-  const result = await invokeTool(engine, 'ops_update', { id: params['id'], ...body });
+  const result = await invokeTool(engine, 'ops_update', { ...body, id: params['id'] });
   json(res, result);
 });
 
@@ -351,7 +351,7 @@ route('GET', '/api/v2/threads/:id', async (_req, res, params, engine) => {
 
 route('PUT', '/api/v2/threads/:id', async (req, res, params, engine) => {
   const body = await readBody(req);
-  const result = await invokeTool(engine, 'thread_update', { id: params['id'], ...body });
+  const result = await invokeTool(engine, 'thread_update', { ...body, id: params['id'] });
   json(res, result);
 });
 
@@ -380,7 +380,7 @@ route('GET', '/api/v2/content/:id', async (_req, res, params, engine) => {
 
 route('PUT', '/api/v2/content/:id', async (req, res, params, engine) => {
   const body = await readBody(req);
-  const result = await invokeTool(engine, 'content_update', { id: params['id'], ...body });
+  const result = await invokeTool(engine, 'content_update', { ...body, id: params['id'] });
   json(res, result);
 });
 
@@ -390,7 +390,7 @@ route('GET', '/api/v2/retrieval-feedback/audit', async (req, res, _params, engin
   const url = new URL(req.url!, `http://localhost`);
   const days = url.searchParams.get('days');
   const args: Record<string, unknown> = {};
-  if (days) args['days'] = parseInt(days, 10);
+  if (days) args['days'] = Math.min(parseInt(days, 10), 1000);
   try {
     const result = await invokeTool(engine, 'retrieval_audit', args);
     json(res, result);
@@ -402,20 +402,26 @@ route('GET', '/api/v2/retrieval-feedback/audit', async (req, res, _params, engin
 
 // ── Generic tool invocation (escape hatch) ────────────────────────────────────
 
-// Tools that are too destructive or sensitive for the generic REST endpoint.
-// These should only be invoked via MCP (direct agent access), not REST.
-const BLOCKED_REST_TOOLS = new Set([
-  'forget',         // deletes memories
-  'dream',          // heavy consolidation
-  'evolve',         // identity changes
-  'resolve',        // resolves signals
-  'thread_resolve', // resolves threads
+// Allowlist of tools safe to invoke via the generic /api/tools/:name endpoint.
+// Mutation/destructive tools either have dedicated endpoints with proper
+// validation or are intentionally MCP-only. Plugin-registered tools are NOT
+// exposed here by default — they ship with unknown trust semantics.
+const REST_TOOL_ALLOWLIST = new Set([
+  // Read-only queries
+  'query', 'retrieve', 'stats', 'vitals_get',
+  'threads_list', 'ops_query', 'content_list', 'retrieval_audit',
+  // Append-only writes (no destructive effect on existing state)
+  'ops_append', 'thread_create',
 ]);
 
 route('POST', '/api/tools/:name', async (req, res, params, engine) => {
   const toolName = params['name'];
-  if (BLOCKED_REST_TOOLS.has(toolName)) {
-    return errorJson(res, 'Tool not available via REST', 403);
+  if (!REST_TOOL_ALLOWLIST.has(toolName)) {
+    return errorJson(
+      res,
+      `Tool "${toolName}" is not exposed via REST. Use a dedicated endpoint or MCP transport.`,
+      403,
+    );
   }
   const body = await readBody(req);
   const result = await invokeTool(engine, toolName, body);
@@ -444,8 +450,12 @@ function timingSafeCompare(a: string, b: string): boolean {
   return a.length === b.length && timingSafeEqual(bufA, bufB);
 }
 
-function checkAuth(req: IncomingMessage, token: string | undefined): boolean {
-  if (!token) return true; // No token configured = open access
+function checkAuth(
+  req: IncomingMessage,
+  token: string | undefined,
+  allowUnauthenticated: boolean,
+): boolean {
+  if (!token) return allowUnauthenticated;
   const header = req.headers['x-cortex-token']
     ?? req.headers['x-marty-token']
     ?? req.headers['authorization']?.replace(/^Bearer\s+/i, '');
@@ -455,8 +465,12 @@ function checkAuth(req: IncomingMessage, token: string | undefined): boolean {
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
 
-function setCorsHeaders(res: ServerResponse, origin?: string): void {
-  // Allow localhost origins (dashboard runs on arbitrary ports)
+function setCorsHeaders(
+  res: ServerResponse,
+  origin: string | undefined,
+  allowLocalhost: boolean,
+): void {
+  if (!allowLocalhost) return;
   const allowed = origin && /^http:\/\/(?:localhost|127\.0\.0\.1):\d{1,5}$/.test(origin) ? origin : '';
   if (allowed) {
     res.setHeader('Access-Control-Allow-Origin', allowed);
@@ -508,8 +522,11 @@ function serveStatic(res: ServerResponse, pathname: string, dashboardDir: string
   const resolvedDashboard = resolve(dashboardDir);
   const filePath = resolve(resolvedDashboard, pathname.replace(/^\/+/, ''));
 
-  // Must be within dashboardDir after full resolution
-  if (!filePath.startsWith(resolvedDashboard + '/') && filePath !== resolvedDashboard) return false;
+  // Must be within dashboardDir after full resolution. Use path.relative so the
+  // check works cross-platform (Windows backslashes break a literal '/' prefix
+  // test).
+  const rel = relative(resolvedDashboard, filePath);
+  if (rel.startsWith('..') || isAbsolute(rel)) return false;
 
   try {
     if (!existsSync(filePath) || !statSync(filePath).isFile()) return false;
@@ -527,8 +544,14 @@ function serveStatic(res: ServerResponse, pathname: string, dashboardDir: string
 
 export interface RestServerOptions {
   port?: number;
+  /** Interface to bind. Defaults to 127.0.0.1 — pass '0.0.0.0' for LAN exposure. */
+  host?: string;
   token?: string;
-  /** Optional CORS origin override (default: localhost only) */
+  /** When true, start without an auth token. Required to bypass the no-token guard. */
+  allowUnauthenticated?: boolean;
+  /** When true, reflect any http://localhost:* origin in CORS headers (dashboard dev mode). */
+  allowCorsLocalhost?: boolean;
+  /** Optional CORS origin override (reserved — not yet wired). */
   corsOrigin?: string | RegExp;
 }
 
@@ -543,7 +566,18 @@ export async function startRestServer(
   options: RestServerOptions = {},
 ): Promise<void> {
   const port = options.port ?? 3000;
+  const host = options.host ?? '127.0.0.1';
   const token = options.token ?? process.env['CORTEX_API_TOKEN'] ?? process.env['MARTY_API_TOKEN'];
+  const allowUnauthenticated = options.allowUnauthenticated ?? false;
+  const allowCorsLocalhost = options.allowCorsLocalhost ?? false;
+
+  if (!token && !allowUnauthenticated) {
+    throw new Error(
+      'REST server refused to start: no auth token configured. ' +
+      'Set CORTEX_API_TOKEN (or pass options.token), or pass options.allowUnauthenticated ' +
+      '(--allow-unauthenticated) if an open server is intentional.',
+    );
+  }
 
   const server = createHttpServer(async (req, res) => {
     const url = new URL(req.url ?? '/', `http://localhost:${port}`);
@@ -551,7 +585,7 @@ export async function startRestServer(
     const origin = req.headers['origin'] as string | undefined;
 
     // CORS headers on every response
-    setCorsHeaders(res, origin);
+    setCorsHeaders(res, origin, allowCorsLocalhost);
 
     // Preflight
     if (method === 'OPTIONS') {
@@ -573,7 +607,7 @@ export async function startRestServer(
     }
 
     // Auth check (skip for /health and dashboard assets)
-    if (url.pathname !== '/health' && !checkAuth(req, token)) {
+    if (url.pathname !== '/health' && !checkAuth(req, token, allowUnauthenticated)) {
       errorJson(res, 'Unauthorized', 401);
       return;
     }
@@ -601,10 +635,10 @@ export async function startRestServer(
   });
 
   return new Promise((resolve) => {
-    server.listen(port, () => {
+    server.listen(port, host, () => {
       const log = (s: string) => process.stderr.write(s + '\n');
-      log(`  rest api ready · http://localhost:${port}`);
-      log(`  ${engine.activeTools.length} tools · ${token ? 'auth enabled' : 'no auth'}`);
+      log(`  rest api ready · http://${host}:${port}`);
+      log(`  ${engine.activeTools.length} tools · ${token ? 'auth enabled' : 'auth DISABLED (open)'}`);
       if (existsSync(join(getDashboardDir(), 'index.html'))) {
         log(`  dashboard · http://localhost:${port}`);
       }

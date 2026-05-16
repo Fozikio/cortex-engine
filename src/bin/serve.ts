@@ -32,6 +32,12 @@ const tokenIdx = process.argv.indexOf('--token');
 const restToken = tokenIdx !== -1 && process.argv[tokenIdx + 1]
   ? process.argv[tokenIdx + 1]
   : undefined;
+const hostIdx = process.argv.indexOf('--host');
+const restHost = hostIdx !== -1 && process.argv[hostIdx + 1]
+  ? process.argv[hostIdx + 1]
+  : undefined;
+const allowUnauthenticated = process.argv.includes('--allow-unauthenticated');
+const allowCorsLocalhost = process.argv.includes('--allow-cors-localhost');
 
 let config;
 try {
@@ -50,7 +56,13 @@ try {
 }
 
 const start = useRest
-  ? createContext(config).then(engine => startRestServer(engine, { port: restPort, token: restToken }))
+  ? createContext(config).then(engine => startRestServer(engine, {
+      port: restPort,
+      host: restHost,
+      token: restToken,
+      allowUnauthenticated,
+      allowCorsLocalhost,
+    }))
   : startServer(config);
 
 start.catch(err => {

@@ -52,13 +52,19 @@ export async function loadPlugins(
       // Validate plugin path is within trusted directories.
       // npm packages (no leading . or /) are resolved by Node and always come
       // from node_modules, so they pass through. Local paths must resolve to
-      // the project directory or an @fozikio/cortex- package in node_modules.
+      // an @fozikio or cortex- prefixed package in node_modules.
+      //
+      // Note: the cwd is NOT a trusted root. Previously `resolve('.')` was in
+      // the allowlist, which trivially defeated the sandbox — any file under
+      // the working directory was treated as trusted. With the cwd removed,
+      // operators who genuinely want to load a local plugin must publish it
+      // under node_modules/@fozikio/* or node_modules/cortex-* (via a workspace
+      // link, npm link, or local install) so the trust decision is explicit.
       if (importPath.startsWith('file://')) {
         const resolved = new URL(importPath).pathname.replace(/^\/([A-Z]:)/i, '$1'); // Windows drive letter fix
         const allowedPrefixes = [
           resolve('node_modules', '@fozikio'),
           resolve('node_modules', 'cortex-'),
-          resolve('.'),
         ];
         const isAllowed = allowedPrefixes.some(prefix => resolved.startsWith(prefix));
         if (!isAllowed) {

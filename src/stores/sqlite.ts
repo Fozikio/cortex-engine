@@ -270,6 +270,12 @@ export class SqliteCortexStore implements CortexStore {
 
   constructor(dbPath: string, namespace?: string) {
     validateNamespace(namespace);
+    // Threat model: dbPath is treated as trusted input. It typically comes
+    // from a config file or programmatic option set by the operator running
+    // cortex-engine. An attacker who can write to that config already owns
+    // the agent, so additional path validation here would be defense at the
+    // wrong layer. Consumers who load untrusted configs MUST validate dbPath
+    // (e.g. confine to a workspace root) before constructing this store.
     this.db = new Database(dbPath);
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('foreign_keys = ON');

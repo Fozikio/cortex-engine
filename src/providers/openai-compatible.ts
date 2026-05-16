@@ -79,15 +79,7 @@ function detectProvider(baseUrl?: string): { baseUrl: string; apiKey: string } {
   return { baseUrl: 'http://localhost:1234/v1', apiKey: '' };
 }
 
-// ---------------------------------------------------------------------------
-// Strip code fences from JSON output
-// ---------------------------------------------------------------------------
-
-function stripJsonFences(text: string): string {
-  const trimmed = text.trim();
-  const fenceMatch = trimmed.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?\s*```$/);
-  return fenceMatch ? fenceMatch[1].trim() : trimmed;
-}
+import { stripJsonFences, buildJsonSystemPrompt } from './_llm-helpers.js';
 
 // ---------------------------------------------------------------------------
 // OpenAICompatibleLLMProvider
@@ -149,14 +141,7 @@ export class OpenAICompatibleLLMProvider implements LLMProvider {
   }
 
   async generateJSON<T>(prompt: string, options?: GenerateJSONOptions): Promise<T> {
-    let systemPrompt = options?.systemPrompt ?? '';
-
-    if (options?.schema) {
-      const schemaInstruction = `Respond with JSON matching this schema: ${JSON.stringify(options.schema)}`;
-      systemPrompt = systemPrompt
-        ? `${systemPrompt}\n\n${schemaInstruction}`
-        : schemaInstruction;
-    }
+    const systemPrompt = buildJsonSystemPrompt(options?.systemPrompt, options?.schema);
 
     const messages: ChatMessage[] = [];
     if (systemPrompt) {

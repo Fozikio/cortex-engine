@@ -16,16 +16,7 @@ export interface VertexLLMOptions {
   model?: string;
 }
 
-/**
- * Strip common code fence wrappers from LLM JSON output.
- * Models often return ```json ... ``` or ``` ... ``` around JSON.
- */
-function stripJsonFences(text: string): string {
-  const trimmed = text.trim();
-  // Match ```json ... ``` or ``` ... ```
-  const fenceMatch = trimmed.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?\s*```$/);
-  return fenceMatch ? fenceMatch[1].trim() : trimmed;
-}
+import { stripJsonFences, buildJsonSystemPrompt } from './_llm-helpers.js';
 
 export class VertexLLMProvider implements LLMProvider {
   readonly name = 'vertex-gemini';
@@ -66,12 +57,7 @@ export class VertexLLMProvider implements LLMProvider {
   }
 
   async generateJSON<T>(prompt: string, options?: GenerateJSONOptions): Promise<T> {
-    // Build system prompt with optional schema instruction
-    let systemPrompt = options?.systemPrompt ?? '';
-    if (options?.schema) {
-      const schemaInstruction = `Respond with JSON matching this schema: ${JSON.stringify(options.schema)}`;
-      systemPrompt = systemPrompt ? `${systemPrompt}\n\n${schemaInstruction}` : schemaInstruction;
-    }
+    const systemPrompt = buildJsonSystemPrompt(options?.systemPrompt, options?.schema);
 
     const model = this.vertexAI.preview.getGenerativeModel({
       model: this.modelId,

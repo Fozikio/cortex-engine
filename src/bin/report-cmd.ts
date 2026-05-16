@@ -112,17 +112,16 @@ export async function runReport(args: string[]): Promise<void> {
   }
 
   // ── Parallel data fetch ─────────────────────────────────────────────────
-  const [memories, allObs, weekOps, allThreads] = await Promise.all([
+  // Fetch all observations + threads via the generic query path; cast after
+  // await since store.query returns Record<string, unknown>[] generically.
+  const [memories, allObsRaw, weekOps, allThreadsRaw] = await Promise.all([
     store.getAllMemories(),
-    // Fetch all observations (no date filter on store.query since we filter in-memory)
-    store.query('observations', [], { limit: 10000 }).then(
-      docs => docs as unknown as Observation[],
-    ),
+    store.query('observations', [], { limit: 10000 }),
     store.queryOps({ days, limit: 5000 }),
-    store.query('threads', [], { limit: 2000 }).then(
-      docs => docs as unknown as Array<{ status?: string; resolved_at?: Date | string | null }>,
-    ),
+    store.query('threads', [], { limit: 2000 }),
   ]);
+  const allObs = allObsRaw as unknown as Observation[];
+  const allThreads = allThreadsRaw as unknown as Array<{ status?: string; resolved_at?: Date | string | null }>;
 
   // Fetch edges for all memory IDs
   const memoryIds = memories.map(m => m.id);

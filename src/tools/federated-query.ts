@@ -74,12 +74,10 @@ export const federatedQueryTool: ToolDefinition = {
 
     // Query all peers in parallel
     const settled = await Promise.allSettled(
-      targetPeers.map((p) =>
-        ctx.federation!.queryPeer(p, text, limit).then((results) => ({
-          agentId: p.agent_id,
-          results,
-        })),
-      ),
+      targetPeers.map(async (p) => ({
+        agentId: p.agent_id,
+        results: await ctx.federation!.queryPeer(p, text, limit),
+      })),
     );
 
     const peersQueried: string[] = [];

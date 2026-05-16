@@ -28,7 +28,7 @@ export const contradictTool: ToolDefinition = {
   },
 
   async handler(args, ctx) {
-    const observationId = typeof args['observation_id'] === 'string' ? args['observation_id'] : '';
+    const observationId = optStr(args, 'observation_id') ?? '';
     const beliefId = optStr(args, 'belief_id');
     const memoryId = optStr(args, 'memory_id');
     const note = optStr(args, 'note') ?? '';

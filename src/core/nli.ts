@@ -5,7 +5,7 @@
  * Used for automated contradiction detection in dream consolidation
  * and the validate tool.
  *
- * Implementations: LocalNLIProvider (HTTP service), LLMFallbackNLIProvider.
+ * Implementations: LocalNLIProvider (HTTP service).
  */
 
 export type NLILabel = 'contradiction' | 'entailment' | 'neutral';

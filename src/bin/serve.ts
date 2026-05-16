@@ -48,7 +48,7 @@ const restHost = hostIdx !== -1 && process.argv[hostIdx + 1]
 const allowUnauthenticated = process.argv.includes('--allow-unauthenticated');
 const allowCorsLocalhost = process.argv.includes('--allow-cors-localhost');
 
-let config;
+let config: ReturnType<typeof loadConfig>;
 try {
   config = loadConfig(undefined, agentName);
 } catch (err) {
@@ -64,15 +64,18 @@ try {
   process.exit(1);
 }
 
-const start = useRest
-  ? createContext(config).then(engine => startRestServer(engine, {
-      port: restPort,
-      host: restHost,
-      token: restToken,
-      allowUnauthenticated,
-      allowCorsLocalhost,
-    }))
-  : startServer(config);
+async function startRest(): Promise<void> {
+  const engine = await createContext(config);
+  return startRestServer(engine, {
+    port: restPort,
+    host: restHost,
+    token: restToken,
+    allowUnauthenticated,
+    allowCorsLocalhost,
+  });
+}
+
+const start = useRest ? startRest() : startServer(config);
 
 start.catch(err => {
   const msg = err instanceof Error ? err.message : String(err);

@@ -117,6 +117,7 @@ export { NamespaceManager } from './namespace/manager.js';
 // from 'cortex-engine/providers/vertex-embed' or 'cortex-engine/providers/vertex-llm'
 // to avoid breaking consumers who don't install @google-cloud/*.
 export { OllamaEmbedProvider, OllamaLLMProvider } from './providers/ollama.js';
+export { BuiltInEmbedProvider } from './providers/builtin-embed.js';
 export type { VertexEmbedOptions, VertexEmbedTaskType } from './providers/vertex-embed.js';
 export type { VertexLLMOptions } from './providers/vertex-llm.js';
 export { LocalNLIProvider, nliToCortexVerdict } from './providers/nli-http.js';

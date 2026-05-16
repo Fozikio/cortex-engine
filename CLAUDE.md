@@ -17,9 +17,8 @@ npm run serve        # Start MCP server (node dist/bin/serve.js)
 src/
 ├── bin/            # CLI entry points (serve.js, cortex-engine CLI)
 ├── bridges/        # Cross-namespace bridging
-├── cognitive/      # Memory consolidation, FSRS scheduling, dream pipeline
 ├── core/           # Config, types, utilities
-├── engines/        # Cognitive processing (query, retrieval, embedding)
+├── engines/        # Cognitive processing, memory consolidation, FSRS, dream pipeline
 ├── mcp/            # MCP server with 27+ cognitive tools
 ├── namespace/      # Multi-namespace management
 ├── plugins/        # Plugin system

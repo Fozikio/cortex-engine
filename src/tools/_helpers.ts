@@ -33,7 +33,7 @@ export function optBool(args: Record<string, unknown>, key: string, def: boolean
 // ─── Event Helpers ───────────────────────────────────────────────────────────
 
 /** Build a tool lookup function for ingestion pipeline execution. */
-export function makeToolLookup(
+function makeToolLookup(
   activeTools: ToolDefinition[],
   ctx: ToolContext,
 ): (name: string) => { name: string; handler: (args: Record<string, unknown>) => Promise<Record<string, unknown>> } | undefined {

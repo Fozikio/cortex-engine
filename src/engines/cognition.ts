@@ -32,6 +32,18 @@ import { extractKeywords } from './keywords.js';
 import { scheduleNext, newFSRSState, elapsedDaysSince } from './fsrs.js';
 import { computeFiedlerValue, detectPESaturation } from './graph-metrics.js';
 import type { PESaturationResult } from './graph-metrics.js';
+import { safeStoreRead, type PhaseStats } from './_safe.js';
+
+// Module-level counter shared across dream phases. dreamConsolidate /
+// dreamPhaseA / dreamPhaseB reset it at the top of the cycle and read it
+// at the bottom to surface DreamResult.failures. Not thread-safe across
+// concurrent dream() calls — cortex-engine treats consolidation as serial.
+const _dreamStats: PhaseStats = { failures: 0 };
+function resetDreamStats(): void { _dreamStats.failures = 0; }
+function dreamFailure(label: string, err: unknown): void {
+  console.error(`[dream:${label}]`, err);
+  _dreamStats.failures++;
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -62,6 +74,8 @@ export interface DreamResult {
    * Undefined when store does not support the required queries or skip_pe_saturation is set.
    */
   pe_saturation?: PESaturationResult;
+  /** Count of catch sites that swallowed an error during this cycle. */
+  failures: number;
 }
 
 export interface DreamOptions {
@@ -184,12 +198,12 @@ async function clusterObservations(
   const unclusteredObs: Observation[] = [];
   const clusteredEvidence = new Map<string, string[]>();
 
-  let observations: Observation[];
-  try {
-    observations = await store.getUnprocessedObservations(limit);
-  } catch {
-    return { clustered: 0, unclustered: 0, unclusteredObs: [], clusteredEvidence: new Map() };
-  }
+  const observations = await safeStoreRead(
+    store.getUnprocessedObservations(limit),
+    [] as Observation[],
+    'cluster:fetch',
+    _dreamStats,
+  );
 
   // Sort by creation time — biological memory consolidation replays in temporal order.
   observations.sort((a, b) => a.created_at.getTime() - b.created_at.getTime());
@@ -267,12 +281,12 @@ async function refineMemories(
 ): Promise<RefinePhaseResult> {
   let refined = 0;
 
-  let recentMemories: Memory[];
-  try {
-    recentMemories = await store.getRecentMemories(7, 100);
-  } catch {
-    return { refined: 0 };
-  }
+  const recentMemories = await safeStoreRead(
+    store.getRecentMemories(7, 100),
+    [] as Memory[],
+    'refine:fetch',
+    _dreamStats,
+  );
 
   for (const memory of recentMemories) {
     try {
@@ -375,11 +389,11 @@ async function refineMemories(
             });
           }
         }
-      } catch {
-        // Edge re-validation is best-effort — don't let it abort the refinement phase.
+      } catch (err) {
+        dreamFailure('refine:edge-revalidate', err);
       }
-    } catch {
-      // One memory failing to refine should not stop the rest.
+    } catch (err) {
+      dreamFailure('refine:memory', err);
       continue;
     }
   }
@@ -415,7 +429,11 @@ async function createFromUnclustered(
     obs => obs.content_type === 'interrogative' || obs.content_type === 'speculative',
   );
   for (const obs of nonDeclarativeObs) {
-    try { await store.markObservationProcessed(obs.id); } catch { /* skip */ }
+    try {
+      await store.markObservationProcessed(obs.id);
+    } catch (err) {
+      dreamFailure('create:mark-non-declarative', err);
+    }
   }
 
   console.error(
@@ -447,8 +465,10 @@ async function createFromUnclustered(
         ];
         const inferred = rawCategory.trim().toLowerCase() as MemoryCategory;
         category = validCategories.includes(inferred) ? inferred : 'observation';
-      } catch {
-        // LLM classification failed — use content_type heuristic.
+      } catch (err) {
+        dreamFailure(`create:classify:${obs.id}`, err);
+        // LLM classification failed — fall back to content_type heuristic so the
+        // observation can still be promoted, but the failure is no longer silent.
         category = obs.content_type === 'reflective' ? 'insight' : 'belief';
       }
 
@@ -482,9 +502,13 @@ async function createFromUnclustered(
       await store.markObservationProcessed(obs.id);
       created++;
     } catch (err) {
-      console.error(`[dream:create] Failed to promote observation ${obs.id}:`, err);
+      dreamFailure(`create:promote:${obs.id}`, err);
       // Mark as processed anyway to prevent infinite re-processing of broken observations.
-      try { await store.markObservationProcessed(obs.id); } catch { /* skip */ }
+      try {
+        await store.markObservationProcessed(obs.id);
+      } catch (markErr) {
+        dreamFailure(`create:mark-failed:${obs.id}`, markErr);
+      }
       continue;
     }
   }
@@ -1021,8 +1045,8 @@ async function hindsightReview(
   for (const memory of sample) {
     try {
       const [beliefHistory, edges] = await Promise.all([
-        store.getBeliefHistory(memory.id).catch(() => [] as BeliefEntry[]),
-        store.getEdgesFrom(memory.id).catch(() => [] as Edge[]),
+        safeStoreRead(store.getBeliefHistory(memory.id), [] as BeliefEntry[], `hindsight:belief-history:${memory.id}`, _dreamStats),
+        safeStoreRead(store.getEdgesFrom(memory.id), [] as Edge[], `hindsight:edges:${memory.id}`, _dreamStats),
       ]);
 
       // Skip memories already explicitly contradicted — Phase 5 scores those via contradiction penalty.
@@ -1039,7 +1063,7 @@ async function hindsightReview(
       // Fetch target names for edge context so the LLM can reason about structural neighbourhood.
       const edgeLines = await Promise.all(
         edges.slice(0, 8).map(async (e) => {
-          const target = await store.getMemory(e.target_id).catch(() => null);
+          const target = await safeStoreRead(store.getMemory(e.target_id), null, `hindsight:target:${e.target_id}`, _dreamStats);
           const label = target ? `"${target.name}"` : e.target_id;
           return `${e.relation}: ${label}`;
         }),
@@ -1202,11 +1226,12 @@ export async function dreamPhaseA(
   embed: EmbedProvider,
   llm: LLMProvider,
   options: DreamOptions = {},
-): Promise<{ cluster: ClusterPhaseResult; refine: RefinePhaseResult; create: CreatePhaseResult }> {
+): Promise<{ cluster: ClusterPhaseResult; refine: RefinePhaseResult; create: CreatePhaseResult; failures: number }> {
+  resetDreamStats();
   const clusterResult = await clusterObservations(store, embed, options);
   const refineResult = await refineMemories(store, embed, llm, options, clusterResult.clusteredEvidence);
   const createResult = await createFromUnclustered(store, embed, llm, clusterResult.unclusteredObs, options);
-  return { cluster: clusterResult, refine: refineResult, create: createResult };
+  return { cluster: clusterResult, refine: refineResult, create: createResult, failures: _dreamStats.failures };
 }
 
 // ─── Public: Phase B (REM) ────────────────────────────────────────────────────
@@ -1235,7 +1260,9 @@ export async function dreamPhaseB(
   report: ReportPhaseResult;
   fiedler_value: number | undefined;
   pe_saturation: PESaturationResult | undefined;
+  failures: number;
 }> {
+  resetDreamStats();
   const connectResult = options.strategy === 'long-context'
     ? await discoverEdgesLongContext(store, llm, options)
     : await discoverEdges(store, llm, options);
@@ -1245,16 +1272,16 @@ export async function dreamPhaseB(
   // Phase 7 — Hindsight: audit entrenched memories for silent confidence hardening.
   const hindsightResult = options.skip_hindsight
     ? { reviewed: 0, revised: 0 }
-    : await hindsightReview(store, llm, options).catch(() => ({ reviewed: 0, revised: 0 }));
+    : await safeStoreRead(hindsightReview(store, llm, options), { reviewed: 0, revised: 0 }, 'hindsight', _dreamStats);
 
   // Graph health metrics — run in parallel for speed.
   const [fiedlerValue, peSaturation] = await Promise.all([
     options.skip_fiedler
       ? Promise.resolve(undefined)
-      : computeFiedlerValue(store).catch(() => undefined),
+      : safeStoreRead(computeFiedlerValue(store), undefined as number | undefined, 'fiedler', _dreamStats),
     options.skip_pe_saturation
       ? Promise.resolve(undefined)
-      : detectPESaturation(store).catch(() => undefined),
+      : safeStoreRead(detectPESaturation(store), undefined as PESaturationResult | undefined, 'pe-saturation', _dreamStats),
   ]);
 
   // Partial-cycle report: pass zero counts for NREM phases.
@@ -1285,6 +1312,7 @@ export async function dreamPhaseB(
     report: reportResult,
     fiedler_value: fiedlerValue,
     pe_saturation: peSaturation,
+    failures: _dreamStats.failures,
   };
 }
 
@@ -1308,6 +1336,7 @@ export async function dreamConsolidate(
   options: DreamOptions = {},
 ): Promise<DreamResult> {
   const start = Date.now();
+  resetDreamStats();
 
   // Phase 1 — Cluster
   const clusterResult = await clusterObservations(store, embed, options);
@@ -1339,16 +1368,16 @@ export async function dreamConsolidate(
   // Runs after scoring so recently contradiction-penalized memories are already handled.
   const hindsightResult = options.skip_hindsight
     ? { reviewed: 0, revised: 0 }
-    : await hindsightReview(store, llm, options).catch(() => ({ reviewed: 0, revised: 0 }));
+    : await safeStoreRead(hindsightReview(store, llm, options), { reviewed: 0, revised: 0 }, 'hindsight', _dreamStats);
 
   // Graph health metrics — run in parallel, don't block the report.
   const [fiedlerValue, peSaturation] = await Promise.all([
     options.skip_fiedler
       ? Promise.resolve(undefined)
-      : computeFiedlerValue(store).catch(() => undefined),
+      : safeStoreRead(computeFiedlerValue(store), undefined as number | undefined, 'fiedler', _dreamStats),
     options.skip_pe_saturation
       ? Promise.resolve(undefined)
-      : detectPESaturation(store).catch(() => undefined),
+      : safeStoreRead(detectPESaturation(store), undefined as PESaturationResult | undefined, 'pe-saturation', _dreamStats),
   ]);
 
   // Phase 8 — Report (runs last to include all phase stats)
@@ -1385,5 +1414,6 @@ export async function dreamConsolidate(
     integration_rate,
     fiedler_value: fiedlerValue,
     pe_saturation: peSaturation,
+    failures: _dreamStats.failures,
   };
 }

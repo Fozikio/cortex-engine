@@ -122,18 +122,18 @@ export async function createContext(config: CortexConfig): Promise<EngineContext
         name: agentName,
         cortex_url: config.federation.self_url,
         capabilities: [...namespaces.getActiveTools()],
-      }).catch(() => { /* best-effort */ });
+      }).catch(err => console.error('[federation:register]', err));
 
       // Start heartbeat interval (every 60s)
       const heartbeatInterval = setInterval(() => {
-        federation.heartbeat(agentId).catch(() => { /* best-effort */ });
+        federation.heartbeat(agentId).catch(err => console.error('[federation:heartbeat]', err));
       }, 60_000);
       heartbeatInterval.unref();
 
       // Cleanup on process exit (best-effort, don't block exit)
       const cleanup = () => {
         clearInterval(heartbeatInterval);
-        federation.deregisterSelf(agentId).catch(() => { /* best-effort */ });
+        federation.deregisterSelf(agentId).catch(err => console.error('[federation:deregister]', err));
       };
       process.once('SIGTERM', cleanup);
       process.once('SIGINT', cleanup);

@@ -7,6 +7,8 @@ export interface PipelineResult {
   trigger_event: string;
   namespace: string;
   steps: PipelineStepResult[];
+  /** True if any step failed. Lets callers detect partial failure without iterating steps. */
+  hasErrors: boolean;
 }
 
 export interface PipelineStepResult {
@@ -50,5 +52,6 @@ export async function executeIngestionPipeline(
     trigger_event: trigger.event,
     namespace: trigger.namespace,
     steps,
+    hasErrors: steps.some((s) => s.status === 'failed'),
   };
 }

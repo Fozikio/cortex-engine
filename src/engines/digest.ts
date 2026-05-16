@@ -46,6 +46,13 @@ export interface DigestResult {
   processed_at: Date;
   /** Duration in ms */
   duration_ms: number;
+  /** Count of inner-loop or top-level catches that swallowed an error. */
+  failures: number;
+}
+
+/** Mutable counter passed through the helper chain so inner catches can surface upstream. */
+interface DigestStats {
+  failures: number;
 }
 
 // ─── Frontmatter Parsing ─────────────────────────────────────────────────────
@@ -136,6 +143,7 @@ async function runObserveStep(
   embed: EmbedProvider,
   sourceFile: string,
   salience: number,
+  stats: DigestStats,
 ): Promise<ObserveStepResult> {
   const observation_ids: string[] = [];
   const memories_linked: string[] = [];
@@ -171,8 +179,9 @@ async function runObserveStep(
         if (gate.decision === 'link' && gate.nearest_id) {
           memories_linked.push(gate.nearest_id);
         }
-      } catch {
-        // Single chunk failure — continue.
+      } catch (err) {
+        console.error('[digest:observe:title-chunk]', err);
+        stats.failures++;
       }
     })();
 
@@ -206,8 +215,9 @@ async function runObserveStep(
         if (gate.decision === 'link' && gate.nearest_id) {
           memories_linked.push(gate.nearest_id);
         }
-      } catch {
-        // Single chunk failure — continue.
+      } catch (err) {
+        console.error('[digest:observe:body-chunk]', err);
+        stats.failures++;
       }
     }
   } else {
@@ -235,8 +245,9 @@ async function runObserveStep(
       if (gate.decision === 'link' && gate.nearest_id) {
         memories_linked.push(gate.nearest_id);
       }
-    } catch {
-      // Observe step failed — return empty.
+    } catch (err) {
+      console.error('[digest:observe:short-doc]', err);
+      stats.failures++;
     }
   }
 
@@ -252,6 +263,7 @@ async function runReflectStep(
   llm: LLMProvider,
   sourceFile: string,
   salience: number,
+  stats: DigestStats,
 ): Promise<string[]> {
   const insights: string[] = [];
 
@@ -303,12 +315,14 @@ async function runReflectStep(
         });
 
         insights.push(insight);
-      } catch {
-        // One insight failing to store should not stop the rest.
+      } catch (err) {
+        console.error('[digest:reflect:insight]', err);
+        stats.failures++;
       }
     }
-  } catch {
-    // Reflect step failed — return whatever insights accumulated.
+  } catch (err) {
+    console.error('[digest:reflect]', err);
+    stats.failures++;
   }
 
   return insights;
@@ -323,6 +337,7 @@ async function runPredictStep(
   llm: LLMProvider,
   sourceFile: string,
   salience: number,
+  stats: DigestStats,
 ): Promise<string[]> {
   const extractedPredictions: string[] = [];
 
@@ -370,12 +385,14 @@ async function runPredictStep(
         });
 
         extractedPredictions.push(prediction);
-      } catch {
-        // One prediction failing should not stop the rest.
+      } catch (err) {
+        console.error('[digest:predict:item]', err);
+        stats.failures++;
       }
     }
-  } catch {
-    // Predict step failed — return whatever accumulated.
+  } catch (err) {
+    console.error('[digest:predict]', err);
+    stats.failures++;
   }
 
   return extractedPredictions;
@@ -404,6 +421,7 @@ async function runExtractStep(
   llm: LLMProvider,
   sourceFile: string,
   salience: number,
+  stats: DigestStats,
 ): Promise<ObserveStepResult> {
   const observation_ids: string[] = [];
   const memories_linked: string[] = [];
@@ -463,12 +481,14 @@ async function runExtractStep(
         if (gate.decision === 'link' && gate.nearest_id) {
           memories_linked.push(gate.nearest_id);
         }
-      } catch {
-        // Single item failure — continue with rest
+      } catch (err) {
+        console.error('[digest:extract:item]', err);
+        stats.failures++;
       }
     }
-  } catch {
-    // LLM extraction failed — return whatever accumulated
+  } catch (err) {
+    console.error('[digest:extract]', err);
+    stats.failures++;
   }
 
   return { observation_ids, memories_linked };
@@ -505,79 +525,60 @@ export async function digestDocument(
   const memories_linked: string[] = [];
   const insights: string[] = [];
   const pipeline_executed: string[] = [];
+  const stats: DigestStats = { failures: 0 };
+
+  const recordFailure = (phase: string, err: unknown): void => {
+    console.error(`[digest:${phase}]`, err);
+    stats.failures++;
+    const msg = err instanceof Error ? err.message : String(err);
+    const stack = err instanceof Error ? err.stack ?? '' : '';
+    pipeline_executed.push(`${phase}:failed: ${msg}\n${stack}`);
+  };
 
   for (const step of pipeline) {
     switch (step) {
       case 'observe': {
         try {
-          const result = await runObserveStep(
-            body,
-            frontmatter,
-            store,
-            embed,
-            sourceFile,
-            salience,
-          );
+          const result = await runObserveStep(body, frontmatter, store, embed, sourceFile, salience, stats);
           observation_ids.push(...result.observation_ids);
           memories_linked.push(...result.memories_linked);
           pipeline_executed.push('observe');
-        } catch {
-          pipeline_executed.push('observe:failed');
+        } catch (err) {
+          recordFailure('observe', err);
         }
         break;
       }
 
       case 'reflect': {
         try {
-          const stepInsights = await runReflectStep(
-            body,
-            store,
-            embed,
-            llm,
-            sourceFile,
-            salience,
-          );
+          const stepInsights = await runReflectStep(body, store, embed, llm, sourceFile, salience, stats);
           insights.push(...stepInsights);
           pipeline_executed.push('reflect');
-        } catch {
-          pipeline_executed.push('reflect:failed');
+        } catch (err) {
+          recordFailure('reflect', err);
         }
         break;
       }
 
       case 'predict': {
         try {
-          const predictions = await runPredictStep(
-            body,
-            store,
-            embed,
-            llm,
-            sourceFile,
-            salience,
-          );
+          const predictions = await runPredictStep(body, store, embed, llm, sourceFile, salience, stats);
           insights.push(...predictions);
           pipeline_executed.push('predict');
-        } catch {
-          pipeline_executed.push('predict:failed');
+        } catch (err) {
+          recordFailure('predict', err);
         }
         break;
       }
 
       case 'extract': {
         try {
-          const result = await runExtractStep(
-            body,
-            store,
-            embed,
-            llm,
-            sourceFile,
-            salience,
-          );
+          const result = await runExtractStep(body, store, embed, llm, sourceFile, salience, stats);
           observation_ids.push(...result.observation_ids);
           memories_linked.push(...result.memories_linked);
           pipeline_executed.push('extract');
-        } catch {
-          pipeline_executed.push('extract:failed');
+        } catch (err) {
+          recordFailure('extract', err);
         }
         break;
       }
@@ -596,5 +597,6 @@ export async function digestDocument(
     pipeline_executed,
     processed_at: new Date(),
     duration_ms: Date.now() - start,
+    failures: stats.failures,
   };
 }

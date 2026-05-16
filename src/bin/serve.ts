@@ -16,6 +16,15 @@ import { loadConfig } from './config-loader.js';
 import { createContext, startServer } from '../mcp/server.js';
 import { startRestServer } from '../rest/server.js';
 
+// Surface unhandled rejections in detached timers / fire-and-forget calls.
+// Without this, a rejected promise in the federation heartbeat or any
+// best-effort .catch() that itself throws would leave the process alive
+// in a broken state with no exit code.
+process.on('unhandledRejection', (err) => {
+  console.error('[cortex-engine] unhandledRejection:', err);
+  process.exit(1);
+});
+
 // Parse flags from argv
 let agentName: string | undefined;
 const agentIdx = process.argv.indexOf('--agent');

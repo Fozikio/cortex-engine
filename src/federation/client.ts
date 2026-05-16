@@ -59,7 +59,8 @@ export class FederationClient {
             ? (a['capabilities'] as unknown[]).map(String)
             : [],
         }));
-    } catch {
+    } catch (err) {
+      console.error('[federation:discover]', err);
       return [];
     }
   }
@@ -88,7 +89,8 @@ export class FederationClient {
           score: typeof r['score'] === 'number' ? r['score'] : 0,
           confidence: typeof r['confidence'] === 'number' ? r['confidence'] : 0,
         }));
-    } catch {
+    } catch (err) {
+      console.error(`[federation:query-peer:${peer.agent_id}]`, err);
       return [];
     }
   }

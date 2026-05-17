@@ -1,21 +1,28 @@
 /**
  * find_duplicates — detect near-duplicate memories using embeddings.
  *
- * Scans recent memories, embeds each, and finds nearest neighbors above
- * a similarity threshold. Optionally merges duplicates by keeping the
- * higher-salience entry.
+ * Scans the N most-recently-updated memories (scan_limit), and for each
+ * finds nearest neighbors above a similarity threshold. The candidate-fetch
+ * width (`max_candidates`) determines how many siblings can be discovered
+ * per scanned memory — must be at least the expected duplicate cluster size
+ * or some pairs will be silently dropped.
+ *
+ * Optionally merges duplicates by keeping the higher-salience entry.
  */
 
 import type { ToolDefinition, ToolContext } from '../mcp/tools.js';
 
 const DUPLICATE_THRESHOLD = 0.85;
-const BATCH_SIZE = 30;
+const DEFAULT_SCAN_LIMIT = 30;
+const DEFAULT_MAX_CANDIDATES = 10;
+const MAX_SCAN_LIMIT = 500;
+const MAX_CANDIDATES_CAP = 50;
 
 export const findDuplicatesTool: ToolDefinition = {
   name: 'find_duplicates',
   category: 'maintenance',
-  description: 'Returns pairs of near-duplicate memories above a similarity threshold. With merge=true, auto-merges them keeping the higher-salience entry.',
-  whenToUse: 'You suspect duplicate memories have piled up and want to audit or clean them.',
+  description: 'Returns pairs of near-duplicate memories above a similarity threshold by scanning the N most-recently-updated memories. With merge=true, auto-merges pairs keeping the higher-salience entry. Defaults scan_limit=30, max_candidates=10 — increase both for full-graph audits or when concept clusters may have more than ~9 copies.',
+  whenToUse: 'You suspect duplicate memories have piled up and want to audit or clean them. For a full-graph sweep, set scan_limit to the total memory count.',
   doNotUse: 'You want to fade one specific concept — use forget. You want to revise it — use believe.',
   inputSchema: {
     type: 'object',
@@ -28,6 +35,14 @@ export const findDuplicatesTool: ToolDefinition = {
         type: 'number',
         description: 'Similarity threshold 0-1 (default: 0.85)',
       },
+      scan_limit: {
+        type: 'number',
+        description: `How many of the most-recently-updated memories to scan (default: ${DEFAULT_SCAN_LIMIT}, max: ${MAX_SCAN_LIMIT}). Older memories not in the scan window won't appear as the "a" side of a pair, though they can appear as candidates.`,
+      },
+      max_candidates: {
+        type: 'number',
+        description: `How many nearest-neighbor candidates to fetch per scanned memory (default: ${DEFAULT_MAX_CANDIDATES}, max: ${MAX_CANDIDATES_CAP}). Must be at least the size of any expected duplicate cluster — if 5 copies of a concept exist, max_candidates < 5 will silently drop pairs.`,
+      },
       namespace: { type: 'string', description: 'Namespace (defaults to default)' },
     },
   },
@@ -36,18 +51,28 @@ export const findDuplicatesTool: ToolDefinition = {
     const merge = args['merge'] === true;
     const threshold =
       typeof args['threshold'] === 'number' ? args['threshold'] : DUPLICATE_THRESHOLD;
+    const scanLimit = Math.min(
+      typeof args['scan_limit'] === 'number' ? args['scan_limit'] : DEFAULT_SCAN_LIMIT,
+      MAX_SCAN_LIMIT,
+    );
+    const maxCandidates = Math.min(
+      typeof args['max_candidates'] === 'number' ? args['max_candidates'] : DEFAULT_MAX_CANDIDATES,
+      MAX_CANDIDATES_CAP,
+    );
     const namespace = typeof args['namespace'] === 'string' ? args['namespace'] : undefined;
 
     const store = ctx.namespaces.getStore(namespace);
 
     // Fetch all memories (sorted by updated_at desc happens naturally)
     const allMemories = await store.getAllMemories();
-    if (allMemories.length === 0) return { duplicates_found: 0, pairs: [], merged: 0 };
+    if (allMemories.length === 0) {
+      return { duplicates_found: 0, pairs: [], merged: 0, scanned: 0 };
+    }
 
-    // Sort by updated_at desc, take the first BATCH_SIZE for scanning
+    // Sort by updated_at desc, take the first scanLimit for scanning
     const sorted = [...allMemories]
       .sort((a, b) => b.updated_at.getTime() - a.updated_at.getTime())
-      .slice(0, BATCH_SIZE);
+      .slice(0, scanLimit);
 
     const pairs: Array<{
       a: { id: string; name: string };
@@ -60,8 +85,8 @@ export const findDuplicatesTool: ToolDefinition = {
     for (const mem of sorted) {
       if (!mem.embedding || mem.embedding.length === 0) continue;
 
-      // Find 3 nearest — first will often be itself, second is potential duplicate
-      const nearest = await store.findNearest(mem.embedding, 3);
+      // Fetch maxCandidates + 1 because the first match is usually the mem itself
+      const nearest = await store.findNearest(mem.embedding, maxCandidates + 1);
       for (const candidate of nearest) {
         if (candidate.memory.id === mem.id) continue;
         if (candidate.score < threshold) continue;
@@ -87,7 +112,13 @@ export const findDuplicatesTool: ToolDefinition = {
       duplicates_found: pairs.length,
       pairs,
       merged: merged_count,
-      note: merge ? `${merged_count} pairs merged` : 'Run with merge=true to auto-merge',
+      scanned: sorted.length,
+      total_memories: allMemories.length,
+      note: merge
+        ? `${merged_count} pairs merged`
+        : sorted.length < allMemories.length
+          ? `Scanned ${sorted.length}/${allMemories.length} most-recent memories. Increase scan_limit for full-graph audit. Run with merge=true to auto-merge.`
+          : 'Run with merge=true to auto-merge',
     };
   },
 };

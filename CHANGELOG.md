@@ -1,5 +1,61 @@
 # Changelog
 
+## [1.2.0] — 2026-05-16
+
+### The audit-driven release
+
+An external code-and-architecture review of cortex-engine surfaced three credible critiques: missing concurrency primitives, no path between storage backends, and 27+ MCP tools competing for an LLM's attention with no disambiguation guidance. This release addresses all three as parallel implementation tracks, plus a fourth track that landed mid-flight when a user reported that CLI subcommands were silently dropping the agent namespace.
+
+### Added
+
+- **`CortexStore.withTransaction(fn)`** — backend-native atomic-write primitive for composing multi-step writes. SQLite uses manual `BEGIN IMMEDIATE` / `COMMIT` / `ROLLBACK` with a per-store Promise-chained mutex (better-sqlite3's own `db.transaction` rejects Promise returns and does not survive `await` suspensions). Firestore wraps `runTransaction` with a `FirestoreTxnProxy` routing writes through the transaction handle. Full contract in [`docs/concurrency.md`](docs/concurrency.md).
+- **`CortexStore.upsertMemory(...)` and siblings** for `Observation`, `Edge`, `OpsEntry`, `Signal`, `BeliefEntry` — ID-preserving variants of `put*` for migration and restore. Implemented in SQLite, Firestore, JSON, and `ScopedStore`.
+- **`CortexStore.getCapabilities()`** — `{ schemaVersion, embeddingDimension, categories, namespace, backend }` snapshot used by `migrate` to refuse incompatible source/destination pairs before mutating data.
+- **`JsonCortexStore`** — a third storage backend backed by a single JSON file with atomic temp+rename persistence. Intended for backup, restore, and migration staging — not a production server-side store.
+- **`fozikio migrate --from <url> --to <url>`** — new CLI command that clones data between any pair of supported backends. Supports `--namespace`, `--rename-namespace`, `--resume`, `--verify`, `--dry-run`, `--allow-merge`, `--batch-size`. Idempotent (upsert-by-ID), checkpointed (`.cortex-migrate-state.json`), fails loudly on schema mismatch.
+- **`fozikio tools`** — new CLI for browsing the cognitive tool catalogue by category. Flags: `--category <cat>`, `--search <q>`, `--json`.
+- **`GET /tools` and `GET /tools/:name`** REST endpoints returning structured `ToolMetadata`. The legacy `/api/tools` shape remains for back-compat.
+- **`ToolDefinition.category` (required) + `whenToUse` (required) + `doNotUse` (optional)** — typed metadata on every tool. The MCP ListTools response composes these into the description string so the LLM has explicit disambiguation guidance. Categories: `memory`, `consolidation`, `beliefs`, `ops`, `threads`, `journal`, `social`, `content`, `graph`, `vitals`, `agents`, `maintenance`, `meta`.
+- **`docs/concurrency.md`** — full concurrency model, transaction contract, SQLite-vs-Firestore divergences, when to call `withTransaction`.
+- **`docs/tools-reference.md`** — auto-generated tool catalogue (57 tools by category). Regenerable via `npm run docs:tools`.
+- **`docs/storage-backends.md`** — selection guide for SQLite / Firestore / JSON.
+- **Design specs** for the three implementation tracks live in [`docs/superpowers/specs/`](docs/superpowers/specs/) for future reviewers.
+
+### Changed
+
+- **SQLite `busy_timeout = 5000`** is now set immediately after `journal_mode = WAL`. Concurrent writers ride out checkpoint contention for up to 5 seconds before surfacing `SQLITE_BUSY`.
+- **Multi-step write paths use `withTransaction`** in `src/engines/cognition.ts` (`clusterObservations`, `refineMemories`, `createFromUnclustered`, `abstractCrossDomain`, `hindsightReview`), `src/tools/believe.ts`, `src/tools/forget.ts`, and `src/tools/observe.ts` (the high-salience-novel memory creation path). A mid-sequence failure during dream consolidation no longer leaves orphan memories, edges, or unprocessed observations.
+- **All 57 tool descriptions rewritten** to a consistent quality bar: 1–2 sentences naming the return shape, paired with `whenToUse` / `doNotUse` for disambiguation. The memory cluster (`query`/`recall`/`retrieve`/`neighbors`/`wonder`/`speculate`/`observe`) received the heaviest review.
+- **`createStore(config, namespace?)`** in `src/bin/store-factory.ts` accepts an optional namespace, threading it through to SQLite and Firestore constructors. Omitting the argument preserves the legacy empty-prefix behaviour.
+- **`wonder` and `speculate` salience schema** corrected from `1-10 (default: 5)` to `0.0-1.0 (default: 0.5)` to match the actual `Observation.salience` storage range.
+
+### Fixed
+
+- **CLI subcommands no longer drop the agent namespace.** Previously `fozikio health`, `vitals`, `anomalies`, `maintain fix`, `report`, `digest`, and `wander` silently ignored both `--namespace` and `.fozikio/agent.yaml`'s `default_namespace`, returning zero-stat results in any workspace whose agent used a non-default namespace. They now resolve via `src/bin/namespace-resolver.ts`, honouring `--namespace`, `--agent`, then config default. Resolved namespace is printed to stderr.
+- **Orphan-memory window during high-salience observation promotion** — `observe.ts` now wraps `putMemory` + `markObservationProcessed` in a transaction.
+- **Audit-trail gap during forget** — `forget.ts` now wraps `updateMemory` + `putBelief` in a transaction so the fade is never visible without its belief log entry.
+- **Confidence/definition split in hindsight review** — `cognition.ts:hindsightReview` now lands the confidence penalty and the definition revision (and the corresponding belief entry) in a single transaction when both apply.
+- **JSON store rollback wrote an unnecessary file** — `JsonCortexStore.withTransaction` no longer calls `persist()` on the rollback path; disk still holds the pre-txn snapshot since the success path is what writes.
+- **Migration to Firestore destinations fails earlier with a clearer message** — `dstHasData` now short-circuits the iterator-adapter checks for backends without iteration support, logging a stderr advisory instead of raising an opaque `unsupported` error.
+- **Migration table-name drift risk** — `readAllFromSqlite` / `readGenericFromSqlite` now call `internals.t(table)` instead of duplicating the prefix-concatenation logic, so any future change to `SqliteCortexStore.t()` propagates correctly.
+
+### Removed
+
+- **Inlined `createStore` duplicates** in `vitals-cmd.ts` and `anomalies-cmd.ts`. Both now use the shared factory in `store-factory.ts`.
+
+### Internal
+
+- 73 new tests across six files: `src/stores/concurrency.test.ts` (5), `src/stores/json.test.ts` (13), `src/bin/store-url.test.ts` (16), `src/bin/migrate.test.ts` (14), `src/bin/namespace-resolver.test.ts` (16), `src/mcp/tools.test.ts` (9). Total suite is now 110 tests.
+- **`ScopedStore`** passes through `withTransaction`, all `upsert*` methods, and `getCapabilities` to its inner store (no behaviour change; required for the type to still implement the extended interface).
+- New `npm run docs:tools` regenerates `docs/tools-reference.md` from the canonical tool list.
+
+### Known limitations
+
+- **Firestore migration is stubbed.** The current iteration adapters narrow on `SqliteCortexStore` / `JsonCortexStore` via `instanceof`; a Firestore source or destination throws a clear "not implemented for class X" error. Add iterator methods to `CortexStore` and the Firestore branch when Firestore↔X migration becomes a need.
+- **`JsonCortexStore` is not a production backend.** It loads the entire dataset into memory and rewrites the file on every write. Use it for backup, restore, migration, and tests.
+
+---
+
 ## [1.1.1] — 2026-05-16
 
 ### Fixed

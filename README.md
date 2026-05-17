@@ -35,6 +35,10 @@ Most AI agents forget everything when the session ends. `cortex-engine` fixes th
 - **Spaced repetition (FSRS)** — interval-aware scheduling with consolidation-state-dependent decay profiles
 - **Embeddings** — pluggable providers (built-in, OpenAI, Vertex AI, Ollama) — no external service required by default
 - **LLM-agnostic** — pluggable LLM providers: Ollama (free/local), Gemini, Kimi (Moonshot AI), DeepSeek, Hugging Face, OpenRouter, OpenAI, or any OpenAI-compatible API
+- **Three storage backends** — local SQLite (default), cloud Firestore, and JSON file (backup/migration). All share one `CortexStore` interface — see [docs/storage-backends.md](docs/storage-backends.md)
+- **Atomic transactions** — `withTransaction(fn)` primitive composes multi-step writes. SQLite uses `BEGIN IMMEDIATE` with a per-store mutex; Firestore uses `runTransaction` with a write-routing proxy. See [docs/concurrency.md](docs/concurrency.md)
+- **Migration tooling** — `fozikio migrate --from <url> --to <url>` clones between any pair of backends. ID-preserving, checkpointed, resumable, fails-loud on schema mismatch
+- **Typed tool catalogue** — every cognitive tool carries `category` + `whenToUse` + `doNotUse` metadata so LLMs disambiguate cleanly. Browse with `fozikio tools` or `GET /tools`. Auto-generated reference at [docs/tools-reference.md](docs/tools-reference.md)
 - **Long-context dream consolidation** — set `strategy: long-context` to run edge discovery and abstraction in a single large LLM pass instead of N² pairwise calls; surfaces transitive patterns and cross-domain connections that the sequential approach misses
 - **Agent dispatch** — `agent_invoke` lets your agent spawn cheap, cortex-aware sub-tasks using any configured LLM. Knowledge compounds across sessions.
 - **MCP server** — 57 cognitive tools (`query`, `observe`, `believe`, `wander`, `dream`, `goal_set`, `agent_invoke`, `thread_create`, `journal_write`, `evolve`, etc.) over the Model Context Protocol
@@ -59,7 +63,7 @@ The engine includes defense-in-depth protections for deployed environments:
 |--------|------|
 | `core` | Foundational types, config, and shared utilities |
 | `engines` | Cognitive processing: memory consolidation, FSRS, graph traversal |
-| `stores` | Persistence layer — SQLite (local) and Firestore (cloud) |
+| `stores` | Persistence layer — SQLite (local), Firestore (cloud), JSON (backup/migration). All implement the shared `CortexStore` interface |
 | `tools` | All 57 cognitive tool implementations (one file per tool) |
 | `mcp` | MCP server, tool registry, and plugin loader |
 | `cognitive` | Higher-order cognitive operations (dream, wander, validate) |
@@ -118,14 +122,19 @@ Source: [fozikio-dashboard](https://github.com/Fozikio/Dashboard)
 ### CLI
 
 ```bash
-npx fozikio serve              # start MCP server
-npx fozikio health             # memory health report
-npx fozikio vitals             # behavioral vitals and prediction error
-npx fozikio wander             # walk through the memory graph
-npx fozikio wander --from "auth"  # seeded walk from a topic
-npx fozikio maintain fix       # scan and repair data issues
-npx fozikio report             # weekly quality report
+npx fozikio serve                          # start MCP server
+npx fozikio health                         # memory health report
+npx fozikio vitals                         # behavioral vitals and prediction error
+npx fozikio wander                         # walk through the memory graph
+npx fozikio wander --from "auth"           # seeded walk from a topic
+npx fozikio maintain fix                   # scan and repair data issues
+npx fozikio report                         # weekly quality report
+npx fozikio tools                          # browse the cognitive tool catalogue
+npx fozikio tools --category memory        # filter to a category
+npx fozikio migrate --from sqlite:./cortex.db --to json:./backup.json --verify
 ```
+
+All read-only commands honour `--namespace <ns>` and `--agent <name>` flags. When called from a workspace with `.fozikio/agent.yaml`, the agent's `default_namespace` is picked up automatically — no flag needed.
 
 ### Development
 
@@ -211,6 +220,13 @@ The plugin system is still available for custom extensions — see [Plugin Docs]
 
 ## Documentation
 
+- **In-repo docs**:
+  - [Quick Start](docs/quick-start.md) — 5-minute setup
+  - [Storage backends](docs/storage-backends.md) — SQLite vs Firestore vs JSON, migration paths
+  - [Concurrency model](docs/concurrency.md) — `withTransaction` contract, single-process invariant, SQLite vs Firestore semantics
+  - [Tools reference](docs/tools-reference.md) — all 57 tools by category with when-to-use guidance (auto-generated)
+  - [Multi-agent design](docs/multi-agent-design.md) — namespace isolation, bridges, federation
+  - [Design specs](docs/superpowers/specs/) — design documents from the v1.2.0 audit-driven refactor
 - **[Wiki](https://github.com/Fozikio/cortex-engine/wiki)** — Installation, architecture, plugin authoring, MCP integration, deployment, FAQ
 - **[Discussions](https://github.com/Fozikio/cortex-engine/discussions)** — Ask questions, share what you've built
 - **[Contributing](https://github.com/Fozikio/.github/blob/main/CONTRIBUTING.md)** — How to contribute

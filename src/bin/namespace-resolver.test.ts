@@ -88,13 +88,17 @@ describe('resolveNamespace', () => {
   });
 
   it('returns the namespace marked default in the config', () => {
+    // Helper sets collections_prefix to `${name}_` by default, returned verbatim.
     const config = configWithDefaultNamespace('anthems');
-    expect(resolveNamespace({ namespace: null, agentName: null }, config)).toBe('anthems');
+    expect(resolveNamespace({ namespace: null, agentName: null }, config)).toBe('anthems_');
   });
 
-  it('prefers collections_prefix (trailing underscore stripped) when set', () => {
+  it('uses collections_prefix verbatim (no trailing-underscore strip)', () => {
+    // Must match the literal value mcp/server.ts passes to SqliteCortexStore.
+    // The store appends `_${collection}` regardless, so a prefix `songs_`
+    // becomes table `songs__memories` for both CLI and MCP — symmetric.
     const config = configWithDefaultNamespace('anthems', 'songs_');
-    expect(resolveNamespace({ namespace: null, agentName: null }, config)).toBe('songs');
+    expect(resolveNamespace({ namespace: null, agentName: null }, config)).toBe('songs_');
   });
 
   it('uses collections_prefix verbatim when it has no trailing underscore', () => {

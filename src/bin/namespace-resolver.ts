@@ -61,12 +61,14 @@ export function resolveNamespace(args: NamespaceArgs, config: CortexConfig): str
     if (ns.default === true) {
       // The literal name 'default' maps to empty-string prefix (legacy).
       if (name === 'default') return '';
-      // Prefer collections_prefix (stripped of trailing underscore) if set,
-      // otherwise use the namespace name as the prefix.
+      // Use collections_prefix verbatim if set — must match the literal value
+      // the MCP server passes to SqliteCortexStore (src/mcp/server.ts), since
+      // both paths feed into the same `${this.ns}_${name}` table-name builder
+      // in src/stores/sqlite.ts. Stripping a trailing underscore here would
+      // make CLI read a different table than MCP wrote to. See test
+      // 'uses collections_prefix verbatim'.
       if (ns.collections_prefix) {
-        return ns.collections_prefix.endsWith('_')
-          ? ns.collections_prefix.slice(0, -1)
-          : ns.collections_prefix;
+        return ns.collections_prefix;
       }
       return name;
     }

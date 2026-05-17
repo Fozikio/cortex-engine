@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.2.1] — 2026-05-17
+
+### Fixed
+
+- **CLI/MCP table-name asymmetry on `collections_prefix` values ending in `_`.** v1.2.0's `src/bin/namespace-resolver.ts` stripped a trailing underscore from `collections_prefix` before passing it to `SqliteCortexStore`, while `src/mcp/server.ts` had always passed the value verbatim. Both feed into the same `${this.ns}_${name}` table-name builder at `src/stores/sqlite.ts:301`, so for any prefix ending in `_` the two paths read and wrote *different* tables. A workspace whose `agent.yaml` set `collections_prefix: anthems_` would see MCP write to `anthems__memories` while `fozikio health --agent anthems` queried the empty `anthems_memories` — silent, identical-looking "zero-stat" output to the pre-v1.2.0 broken behaviour the resolver was introduced to fix. The resolver now returns `collections_prefix` verbatim, matching the MCP server's de facto behaviour. MCP wrote first, so its table layout is ground truth; aligning CLI to MCP preserves existing data with zero migration. `namespace-resolver.test.ts` updated to assert the new verbatim semantics (was: "prefers collections_prefix (trailing underscore stripped) when set").
+
 ## [1.2.0] — 2026-05-16
 
 ### The audit-driven release

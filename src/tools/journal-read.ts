@@ -8,7 +8,10 @@ const COLLECTION = 'journals';
 
 export const journalReadTool: ToolDefinition = {
   name: 'journal_read',
-  description: 'Read journal entries. Fetch a specific date or the last N days.',
+  category: 'journal',
+  description: 'Returns one journal entry by date or a span of the last N days, in chronological order.',
+  whenToUse: 'You want to review past daily reflections — a specific day or recent context.',
+  doNotUse: 'You want to search by topic — use query.',
   inputSchema: {
     type: 'object',
     properties: {

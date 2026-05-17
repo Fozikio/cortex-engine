@@ -8,7 +8,10 @@ import { str, optStr, optNum } from './_helpers.js';
 
 export const neighborsTool: ToolDefinition = {
   name: 'neighbors',
-  description: 'Explore memories connected to a specific memory. Shows related concepts linked by edges in the knowledge graph. Use after query() to explore around a result.',
+  category: 'memory',
+  description: 'Returns memories linked to a seed memory via graph edges, with relation type, weight, and evidence — up to the given depth.',
+  whenToUse: 'You have a memory id and want concepts the graph says are explicitly related to it.',
+  doNotUse: 'You want semantically similar memories regardless of stored links — use query.',
   inputSchema: {
     type: 'object',
     properties: {

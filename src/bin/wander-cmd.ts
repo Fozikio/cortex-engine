@@ -14,6 +14,7 @@ import { loadConfig } from './config-loader.js';
 import { SqliteCortexStore } from '../stores/sqlite.js';
 import { BuiltInEmbedProvider } from '../providers/builtin-embed.js';
 import { OllamaEmbedProvider } from '../providers/ollama.js';
+import { parseNamespaceArgs, resolveNamespace, namespaceLabel } from './namespace-resolver.js';
 import type { EmbedProvider } from '../core/embed.js';
 import type { Memory } from '../core/types.js';
 
@@ -24,6 +25,8 @@ export async function runWander(args: string[]): Promise<void> {
   let steps = 5;
   let fromText: string | undefined;
 
+  const nsArgs = parseNamespaceArgs(args);
+
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--steps' && args[i + 1]) {
       steps = parseInt(args[i + 1], 10) || 5;
@@ -31,13 +34,15 @@ export async function runWander(args: string[]): Promise<void> {
     } else if (args[i] === '--from' && args[i + 1]) {
       fromText = args[i + 1];
       i++;
+    } else if ((args[i] === '--namespace' || args[i] === '--agent') && args[i + 1]) {
+      i++; // consume value; parseNamespaceArgs already captured it
     }
   }
 
   // Load config
   let config;
   try {
-    config = loadConfig();
+    config = loadConfig(process.cwd(), nsArgs.agentName ?? undefined);
   } catch {
     log('');
     log('  \u2717 no agent workspace found');
@@ -54,11 +59,13 @@ export async function runWander(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  // Connect to store
-  const nsName = Object.keys(config.namespaces ?? {})[0] ?? 'default';
+  // Resolve namespace from --namespace/--agent flags, falling back to the
+  // namespace marked default in the loaded config.
+  const namespace = resolveNamespace(nsArgs, config);
+  const nsName = namespaceLabel(namespace);
   const store = new SqliteCortexStore(
     config.store_options?.sqlite_path ?? './cortex.db',
-    nsName,
+    namespace,
   );
 
   // Get all memories

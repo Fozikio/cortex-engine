@@ -9,9 +9,10 @@ import { extractKeywords } from '../engines/keywords.js';
 
 export const opsUpdateTool: ToolDefinition = {
   name: 'ops_update',
-  description:
-    'Update an operational log entry — change its status (active/done/stale), amend content, or update continuity fields (next, blocked). ' +
-    'Use ops_query() to find the entry ID first.',
+  category: 'ops',
+  description: 'Updates an ops entry by id — change status (active/done/stale), amend content, or set continuity fields (next, blocked). Returns the updated entry.',
+  whenToUse: 'You already have the entry id (typically from ops_query) and want to mark it done, blocked, or amend its content.',
+  doNotUse: 'You want to create a new entry — use ops_append.',
   inputSchema: {
     type: 'object',
     properties: {

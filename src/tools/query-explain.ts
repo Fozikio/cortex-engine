@@ -8,8 +8,10 @@ import { str, optNum, optStr } from './_helpers.js';
 
 export const queryExplainTool: ToolDefinition = {
   name: 'query_explain',
-  description:
-    'Semantic search over memory with one-sentence relevance explanations. Returns each result plus a "why" string explaining why that memory is relevant to the query.',
+  category: 'meta',
+  description: 'Returns query results augmented with a one-sentence LLM-generated "why" explaining each match. Slower than query — one LLM call per result.',
+  whenToUse: 'You need to understand why results were ranked the way they were, e.g. debugging retrieval or showing reasoning to a user.',
+  doNotUse: 'You just need ranked results — use query, which is faster and does not spend LLM calls.',
   inputSchema: {
     type: 'object',
     properties: {

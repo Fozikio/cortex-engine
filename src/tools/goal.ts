@@ -11,12 +11,10 @@ import { extractKeywords } from '../engines/keywords.js';
 
 export const goalTool: ToolDefinition = {
   name: 'goal_set',
-  description:
-    'Set a goal — a desired future state that generates forward prediction error. ' +
-    'Unlike beliefs (what is true) or observations (what happened), goals represent ' +
-    'what the agent wants to be true. The gap between current beliefs and goals ' +
-    'creates a persistent value signal that biases consolidation and exploration ' +
-    'toward goal-relevant content.',
+  category: 'agents',
+  description: 'Records a desired future state as a goal — the gap between it and current beliefs creates a forward prediction-error signal that biases consolidation. Returns the new goal id.',
+  whenToUse: 'You want to declare what the agent should aim for, not what is true.',
+  doNotUse: 'You are recording a fact (use observe) or a belief revision (use believe).',
   inputSchema: {
     type: 'object' as const,
     properties: {

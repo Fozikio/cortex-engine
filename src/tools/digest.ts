@@ -9,7 +9,10 @@ import { digestDocument } from '../engines/digest.js';
 
 export const digestTool: ToolDefinition = {
   name: 'digest',
-  description: 'Ingest a document — extracts facts as observations and generates reflections. Use for batch learning from files, plans, articles, or any content worth remembering.',
+  category: 'consolidation',
+  description: 'Ingests a single document — extracts facts as observations and generates reflections. Returns the new observation ids and any reflections produced.',
+  whenToUse: 'You have a file, article, or block of text and want its facts captured as observations in one pass.',
+  doNotUse: 'You want to consolidate already-recorded observations into memories — use dream.',
   inputSchema: {
     type: 'object',
     properties: {

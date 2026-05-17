@@ -7,7 +7,10 @@ import { str, optStr, fireTriggers, fireBridges } from './_helpers.js';
 
 export const believeTool: ToolDefinition = {
   name: 'believe',
-  description: 'Update what you believe about an existing memory. Logs the previous definition, records why the belief changed, and updates the memory. Use when your understanding of a concept has changed — not for new observations.',
+  category: 'beliefs',
+  description: 'Records a belief revision on an existing memory — logs the previous definition with a reason and updates the live memory. Returns the belief history entry id.',
+  whenToUse: 'Your understanding of an existing concept has changed and you want the change tracked over time.',
+  doNotUse: 'You are recording a brand-new fact (use observe) or just viewing past beliefs (use belief).',
   inputSchema: {
     type: 'object',
     properties: {
@@ -33,23 +36,28 @@ export const believeTool: ToolDefinition = {
 
     const oldDefinition = memory.definition;
 
-    // Log belief change
-    const beliefId = await store.putBelief({
-      concept_id: conceptId,
-      old_definition: oldDefinition,
-      new_definition: newDefinition,
-      reason,
-      changed_at: new Date(),
-    });
-
-    // Re-embed with new definition
+    // Embed BEFORE the transaction — LLM/network calls must never happen
+    // inside withTransaction (they hold the writer mutex open). See
+    // docs/concurrency.md.
     const newEmbedding = await ctx.embed.embed(newDefinition);
 
-    // Update the memory
-    await store.updateMemory(conceptId, {
-      definition: newDefinition,
-      embedding: newEmbedding,
-      updated_at: new Date(),
+    // Atomic: belief log + memory update commit together so we never end up
+    // with a belief entry that points at a memory that was never updated,
+    // or a memory whose history is missing the revision row.
+    const beliefId = await store.withTransaction(async (txn) => {
+      const id = await txn.putBelief({
+        concept_id: conceptId,
+        old_definition: oldDefinition,
+        new_definition: newDefinition,
+        reason,
+        changed_at: new Date(),
+      });
+      await txn.updateMemory(conceptId, {
+        definition: newDefinition,
+        embedding: newEmbedding,
+        updated_at: new Date(),
+      });
+      return id;
     });
 
     const result = {

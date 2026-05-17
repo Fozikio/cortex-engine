@@ -12,11 +12,10 @@ import { memoryToSummary } from '../engines/memory.js';
 
 export const wanderTool: ToolDefinition = {
   name: 'wander',
-  description:
-    'Take an information-gain-weighted walk through your memories. ' +
-    'Prefers under-explored, uncertain, goal-adjacent, and stale nodes while ' +
-    'preserving serendipity. Use when you want inspiration or to surface what ' +
-    'deserves more attention.',
+  category: 'consolidation',
+  description: 'Returns a serendipitous walk through the memory graph weighted by information gain — prefers under-explored, uncertain, goal-adjacent, and stale nodes.',
+  whenToUse: 'You want inspiration, novel connections, or to surface memories that deserve more attention.',
+  doNotUse: 'You have a specific topic in mind — use query for targeted retrieval.',
   inputSchema: {
     type: 'object',
     properties: {

@@ -72,8 +72,10 @@ function scoreRecency(timestamp: string): number {
 
 export const socialScoreTool: ToolDefinition = {
   name: 'social_score',
-  description:
-    'Score a social media signal for engagement potential. 5-factor scoring: engagement level, topic relevance, author influence, recency, and novelty (whether we have interacted with this author before). Returns 0-100 score with breakdown.',
+  category: 'social',
+  description: 'Returns a 0-100 engagement-potential score for a social post with a per-factor breakdown across engagement, relevance, influence, recency, and novelty.',
+  whenToUse: 'You want to decide whether a tweet or post is worth replying to.',
+  doNotUse: 'You already decided to reply — use social_draft for the reply text.',
   inputSchema: {
     type: 'object',
     properties: {

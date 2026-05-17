@@ -14,6 +14,7 @@
 
 import { loadConfig } from './config-loader.js';
 import { createStore } from './store-factory.js';
+import { parseNamespaceArgs, resolveNamespace, namespaceLabel } from './namespace-resolver.js';
 import type { Memory, Observation, FSRSState } from '../core/types.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -168,16 +169,18 @@ interface HealthReport {
 
 export async function runHealth(args: string[]): Promise<void> {
   const { prune, json } = parseArgs(args);
+  const nsArgs = parseNamespaceArgs(args);
 
   if (!json) {
     console.error('[fozikio health] Loading config...');
   }
 
-  const config = loadConfig();
-  const store = await createStore(config);
+  const config = loadConfig(process.cwd(), nsArgs.agentName ?? undefined);
+  const namespace = resolveNamespace(nsArgs, config);
+  const store = await createStore(config, namespace);
 
   if (!json) {
-    console.error(`[fozikio health] Backend: ${config.store}. Fetching data...`);
+    console.error(`[fozikio health] Backend: ${config.store}, namespace: ${namespaceLabel(namespace)}. Fetching data...`);
   }
 
   const now = new Date();

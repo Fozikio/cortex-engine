@@ -12,8 +12,10 @@ const MAX_RESULTS = 10;
 
 export const suggestTagsTool: ToolDefinition = {
   name: 'suggest_tags',
-  description:
-    'Suggest tags for content based on semantic similarity to known concepts in the memory graph.',
+  category: 'graph',
+  description: 'Returns suggested tags for a text — the names of memory-graph concepts most semantically similar to the input.',
+  whenToUse: 'You want tag suggestions for a piece of content based on existing concepts in the graph.',
+  doNotUse: 'You want raw concept matches with phrase positions — use suggest_links.',
   inputSchema: {
     type: 'object',
     properties: {

@@ -8,7 +8,10 @@ const COLLECTION = 'threads';
 
 export const threadCreateTool: ToolDefinition = {
   name: 'thread_create',
-  description: 'Create a new thought thread for tracking ongoing questions, explorations, or topics.',
+  category: 'threads',
+  description: 'Creates a new thought thread for an ongoing question, exploration, or topic that will span multiple sessions. Returns the new thread id.',
+  whenToUse: 'You are starting a line of inquiry that will need follow-up work across sessions.',
+  doNotUse: 'You are logging a one-shot session breadcrumb (use ops_append) or a fact (use observe).',
   inputSchema: {
     type: 'object',
     properties: {

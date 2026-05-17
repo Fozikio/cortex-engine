@@ -10,8 +10,10 @@ const OBSERVATIONS_COLLECTION = 'observations';
 
 export const noticeTool: ToolDefinition = {
   name: 'notice',
-  description:
-    'Store an observation without embedding (fast path). Embedding happens during the next embed-pending job. Use for low-latency logging.',
+  category: 'meta',
+  description: 'Stores an observation without embedding for low-latency logging — embedding happens later in a batch job. Returns the new observation id.',
+  whenToUse: 'You want to log a quick observation without paying embedding cost in the hot path.',
+  doNotUse: 'You want the observation searchable immediately — use observe.',
   inputSchema: {
     type: 'object',
     properties: {

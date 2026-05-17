@@ -8,13 +8,16 @@ import { str, optStr, optNum, fireTriggers, fireBridges } from './_helpers.js';
 
 export const speculateTool: ToolDefinition = {
   name: 'speculate',
-  description: 'Record a hypothesis or untested idea — something that might be true but hasn\'t been confirmed. Stored with a speculative flag so it\'s excluded from default query results. Use observe() for confirmed facts, wonder() for questions, speculate() for "what if" ideas.',
+  category: 'memory',
+  description: 'Records a hypothesis as a speculative observation, flagged so it is excluded from default query results until validated. Returns the new observation id.',
+  whenToUse: 'You want to capture a "what if" idea or untested claim that should not yet be treated as fact.',
+  doNotUse: 'You have a confirmed fact (use observe) or an open question (use wonder).',
   inputSchema: {
     type: 'object',
     properties: {
       text: { type: 'string', description: 'The hypothesis (e.g. "Switching to sessions might reduce token overhead")' },
       namespace: { type: 'string', description: 'Target namespace (defaults to default)' },
-      salience: { type: 'number', description: 'Importance score 1-10 (default: 5)' },
+      salience: { type: 'number', description: 'Importance score 0.0-1.0 (default: 0.5)' },
       basis: { type: 'string', description: 'What evidence or reasoning supports this hypothesis' },
     },
     required: ['text'],
@@ -22,7 +25,7 @@ export const speculateTool: ToolDefinition = {
   async handler(args, ctx) {
     const text = str(args, 'text');
     const namespace = optStr(args, 'namespace');
-    const salience = optNum(args, 'salience', 5);
+    const salience = optNum(args, 'salience', 0.5);
     const basis = optStr(args, 'basis') ?? '';
 
     const store = ctx.namespaces.getStore(namespace);

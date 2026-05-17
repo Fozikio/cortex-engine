@@ -13,7 +13,10 @@ import { str, optStr, optNum, optBool, fireTriggers, fireBridges } from './_help
 
 export const queryTool: ToolDefinition = {
   name: 'query',
-  description: 'Search your memories by meaning. Returns the most relevant stored knowledge for a given topic or question. Use before writing new observations to avoid duplicates.',
+  category: 'memory',
+  description: 'Returns memories ranked by semantic similarity to a question, with HyDE expansion, graph spread activation, and FSRS retrievability weighting.',
+  whenToUse: 'You have a topic or question and want the most relevant stored memories, including via graph hops.',
+  doNotUse: 'You know the exact id (use retrieve) or want recent observations chronologically (use recall).',
   inputSchema: {
     type: 'object',
     properties: {

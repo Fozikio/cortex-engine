@@ -14,10 +14,10 @@ import { str, optStr } from './_helpers.js';
 
 export const opsAppendTool: ToolDefinition = {
   name: 'ops_append',
-  description:
-    'Log an operational event. Types: log (session breadcrumb, 90-day TTL), instruction (directive for future session, 14-day TTL), ' +
-    'handoff (session transition with structured metadata, 14-day TTL), milestone (achievement, 180-day TTL), decision (architecture/design choice, 365-day TTL). ' +
-    'Use project= to scope entries for multi-session work. Use ops_query() to read back entries, ops_update() to change status.',
+  category: 'ops',
+  description: 'Appends an operational log entry with type-based TTL (log 90d, instruction 14d, handoff 14d, milestone 180d, decision 365d).',
+  whenToUse: 'You want to record a session breadcrumb, directive, handoff, milestone, or decision.',
+  doNotUse: 'You want to record a fact (use observe) or a thought thread (use thread_create).',
   inputSchema: {
     type: 'object',
     properties: {

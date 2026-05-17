@@ -8,7 +8,10 @@ import { optStr, optNum } from './_helpers.js';
 
 export const recallTool: ToolDefinition = {
   name: 'recall',
-  description: 'List recent observations in chronological order. Use query() to search by meaning, recall() to see what was recorded lately. Filter by content_type to see only facts, questions, or hypotheses.',
+  category: 'memory',
+  description: 'Returns recent observations in chronological order within a time window, optionally filtered by content_type (declarative, interrogative, speculative, reflective).',
+  whenToUse: 'You want to see what was recorded recently — a chronological feed of observations rather than ranked search.',
+  doNotUse: 'You are looking for memories matching a topic (use query) or you have an id (use retrieve).',
   inputSchema: {
     type: 'object',
     properties: {

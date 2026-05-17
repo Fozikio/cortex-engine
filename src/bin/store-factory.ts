@@ -12,10 +12,16 @@ import { SqliteCortexStore } from '../stores/sqlite.js';
 
 /**
  * Create and return a CortexStore from config.
- * Uses the default namespace prefix (empty string) — suitable for direct
- * CLI operations that don't need namespace scoping.
+ *
+ * The `namespace` argument is the table/collection prefix that the store will
+ * operate under. Pass the empty string for legacy un-prefixed tables. CLI
+ * commands should resolve this via namespace-resolver.ts so --namespace and
+ * --agent flags route correctly.
  */
-export async function createStore(config: CortexConfig): Promise<CortexStore> {
+export async function createStore(
+  config: CortexConfig,
+  namespace: string = '',
+): Promise<CortexStore> {
   if (config.store === 'firestore') {
     const { getApps, initializeApp } = await import('firebase-admin/app');
     if (getApps().length === 0) {
@@ -28,12 +34,13 @@ export async function createStore(config: CortexConfig): Promise<CortexStore> {
     db.settings({ ignoreUndefinedProperties: true });
 
     const { FirestoreCortexStore } = await import('../stores/firestore.js');
-    return new FirestoreCortexStore(db, '', FieldValue);
+    return new FirestoreCortexStore(db, namespace, FieldValue);
   }
 
   // Default: SQLite
   return new SqliteCortexStore(
     config.store_options?.sqlite_path ?? './cortex.db',
+    namespace,
   );
 }
 

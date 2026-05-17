@@ -8,7 +8,10 @@ const COLLECTION = 'content';
 
 export const contentUpdateTool: ToolDefinition = {
   name: 'content_update',
-  description: 'Update a content piece — change state, edit body, add platform versions, mark published.',
+  category: 'content',
+  description: 'Updates a content piece by id — change state, edit body, add platform versions, or mark published. Returns the updated piece.',
+  whenToUse: 'You have the content id and want to advance it through the pipeline or amend its content.',
+  doNotUse: 'You are creating a new piece — use content_create.',
   inputSchema: {
     type: 'object',
     properties: {

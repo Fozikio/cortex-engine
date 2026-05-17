@@ -8,7 +8,10 @@ import { optStr, optNum } from './_helpers.js';
 
 export const opsQueryTool: ToolDefinition = {
   name: 'ops_query',
-  description: 'Search the operational log. Filter by project, entry type, status, or time window. Use to review what happened in previous sessions or check project progress.',
+  category: 'ops',
+  description: 'Returns operational log entries filtered by project, type, status, or time window — for reviewing what happened in previous sessions.',
+  whenToUse: 'You want to read back ops entries — session breadcrumbs, instructions, handoffs, milestones, decisions.',
+  doNotUse: 'You want to search memories or observations — use query or recall.',
   inputSchema: {
     type: 'object',
     properties: {

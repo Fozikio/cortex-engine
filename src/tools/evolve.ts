@@ -10,8 +10,10 @@ const VALID_CONFIDENCE = ['high', 'medium', 'low'] as const;
 
 export const evolveTool: ToolDefinition = {
   name: 'evolve',
-  description:
-    'Propose an identity evolution — a change in values, preferences, patterns, or beliefs. Creates a proposal that can be reviewed and applied.',
+  category: 'journal',
+  description: 'Records an identity evolution proposal — a shift in values, preferences, patterns, or self-beliefs. Returns the new proposal id in proposed status.',
+  whenToUse: 'You noticed an identity-level change worth reviewing before applying — values, voice, working style.',
+  doNotUse: 'You are revising a single belief about an external concept (use believe) or recording a fact (use observe).',
   inputSchema: {
     type: 'object',
     properties: {

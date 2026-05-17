@@ -234,12 +234,13 @@ async function clusterObservations(
           continue;
         }
 
-        // Bump the memory's access count to reflect the clustering.
-        // No edge needed — the observation→memory relationship is implicit
-        // in the processing, and self-referential edges are useless noise.
-        await store.touchMemory(nearestMemoryId, {});
-
-        await store.markObservationProcessed(obs.id);
+        // Touch memory + mark observation processed must commit together.
+        // A partial commit leaves an observation perpetually reprocessable
+        // or a memory whose access count is wrong for the cluster.
+        await store.withTransaction(async (txn) => {
+          await txn.touchMemory(nearestMemoryId, {});
+          await txn.markObservationProcessed(obs.id);
+        });
 
         // Preserve evidence for Phase 2 — clustered content is the highest
         // information loss point; store it so refineMemories can use it.
@@ -338,23 +339,26 @@ async function refineMemories(
       // Reject definitions with markdown formatting — refined definitions should be plain text
       if (/^\*\*/.test(newDefinition.trim())) continue;
 
-      // Log the belief change before updating.
+      // Embed before the transaction — LLM calls inside withTransaction
+      // would hold the writer mutex open. See docs/concurrency.md.
       const totalEvidence = allEvidence.length;
-      await store.putBelief({
-        concept_id: memory.id,
-        old_definition: memory.definition,
-        new_definition: newDefinition.trim(),
-        reason: `Dream refinement from ${totalEvidence} observations`,
-        changed_at: new Date(),
-      });
-
-      // Re-embed the refined definition.
       const newEmbedding = await embed.embed(newDefinition.trim());
 
-      await store.updateMemory(memory.id, {
-        definition: newDefinition.trim(),
-        embedding: newEmbedding,
-        updated_at: new Date(),
+      // Belief log + memory update must commit together: a half-applied
+      // refinement leaves the audit trail referencing a stale definition.
+      await store.withTransaction(async (txn) => {
+        await txn.putBelief({
+          concept_id: memory.id,
+          old_definition: memory.definition,
+          new_definition: newDefinition.trim(),
+          reason: `Dream refinement from ${totalEvidence} observations`,
+          changed_at: new Date(),
+        });
+        await txn.updateMemory(memory.id, {
+          definition: newDefinition.trim(),
+          embedding: newEmbedding,
+          updated_at: new Date(),
+        });
       });
 
       refined++;
@@ -482,24 +486,28 @@ async function createFromUnclustered(
         ? obs.content.slice(0, 60)
         : obs.content;
 
-      await store.putMemory({
-        name,
-        definition: obs.content,
-        category,
-        salience: obs.salience,
-        confidence: 0.5,
-        access_count: 0,
-        created_at: new Date(),
-        updated_at: new Date(),
-        last_accessed: new Date(),
-        source_files: obs.source_file ? [obs.source_file] : [],
-        embedding,
-        tags: obs.keywords.length > 0 ? obs.keywords : extractKeywords(obs.content),
-        fsrs: newFSRSState(),
-        memory_origin: 'dream',
+      // Atomic: promote the observation and mark it processed in one shot.
+      // Without this, a crash between the two writes leaves an orphan memory
+      // whose source observation gets re-promoted on the next dream cycle.
+      await store.withTransaction(async (txn) => {
+        await txn.putMemory({
+          name,
+          definition: obs.content,
+          category,
+          salience: obs.salience,
+          confidence: 0.5,
+          access_count: 0,
+          created_at: new Date(),
+          updated_at: new Date(),
+          last_accessed: new Date(),
+          source_files: obs.source_file ? [obs.source_file] : [],
+          embedding,
+          tags: obs.keywords.length > 0 ? obs.keywords : extractKeywords(obs.content),
+          fsrs: newFSRSState(),
+          memory_origin: 'dream',
+        });
+        await txn.markObservationProcessed(obs.id);
       });
-
-      await store.markObservationProcessed(obs.id);
       created++;
     } catch (err) {
       dreamFailure(`create:promote:${obs.id}`, err);
@@ -943,27 +951,27 @@ async function abstractCrossDomain(
         ? firstSentence.slice(0, 97) + '...'
         : firstSentence;
 
-      const abstractionId = await store.putMemory({
-        name: memName,
-        definition: trimmed,
-        category: 'insight',
-        salience: 0.8,
-        confidence: 0.6,
-        access_count: 0,
-        created_at: new Date(),
-        updated_at: new Date(),
-        last_accessed: new Date(),
-        source_files: [],
-        embedding: abstEmbedding,
-        tags: extractKeywords(trimmed),
-        fsrs: newFSRSState(),
-        memory_origin: 'abstract',
-      });
-
-      // Create provenance edges from abstraction to each source memory
-      for (const sourceMem of sampledMemories) {
-        try {
-          await store.putEdge({
+      // Abstraction memory + its provenance edges land together. Otherwise
+      // a partial commit produces an "insight" with no traceable sources.
+      await store.withTransaction(async (txn) => {
+        const abstractionId = await txn.putMemory({
+          name: memName,
+          definition: trimmed,
+          category: 'insight',
+          salience: 0.8,
+          confidence: 0.6,
+          access_count: 0,
+          created_at: new Date(),
+          updated_at: new Date(),
+          last_accessed: new Date(),
+          source_files: [],
+          embedding: abstEmbedding,
+          tags: extractKeywords(trimmed),
+          fsrs: newFSRSState(),
+          memory_origin: 'abstract',
+        });
+        for (const sourceMem of sampledMemories) {
+          await txn.putEdge({
             source_id: abstractionId,
             target_id: sourceMem.id,
             relation: 'exemplifies',
@@ -971,10 +979,8 @@ async function abstractCrossDomain(
             evidence: `Dream abstraction source: [${sourceMem.category}] ${sourceMem.name}`,
             created_at: new Date(),
           });
-        } catch {
-          // Edge creation failure shouldn't abort the abstraction
         }
-      }
+      });
 
       abstractions++;
     } catch {
@@ -1103,25 +1109,44 @@ async function hindsightReview(
 
       if (!hasConcern) continue;
 
-      // Apply confidence reduction.
-      if (penalty > 0.05) {
+      // Confidence + definition + belief log must commit as one unit
+      // so the memory's confidence and definition never disagree with
+      // the audit trail. Split paths if only one applies.
+      const applyConfidence = penalty > 0.05;
+      const applyDefinition = definitionChanged && newDef;
+
+      if (applyConfidence && applyDefinition) {
+        await store.withTransaction(async (txn) => {
+          await txn.putBelief({
+            concept_id: memory.id,
+            old_definition: memory.definition,
+            new_definition: newDef,
+            reason: `[hindsight] ${result.reason}`,
+            changed_at: new Date(),
+          });
+          await txn.updateMemory(memory.id, {
+            confidence: Math.max(0.1, memory.confidence - penalty),
+            definition: newDef,
+            updated_at: new Date(),
+          });
+        });
+      } else if (applyDefinition) {
+        await store.withTransaction(async (txn) => {
+          await txn.putBelief({
+            concept_id: memory.id,
+            old_definition: memory.definition,
+            new_definition: newDef,
+            reason: `[hindsight] ${result.reason}`,
+            changed_at: new Date(),
+          });
+          await txn.updateMemory(memory.id, {
+            definition: newDef,
+            updated_at: new Date(),
+          });
+        });
+      } else if (applyConfidence) {
         await store.updateMemory(memory.id, {
           confidence: Math.max(0.1, memory.confidence - penalty),
-          updated_at: new Date(),
-        });
-      }
-
-      // Revise definition if warranted — log it so the audit trail is complete.
-      if (definitionChanged && newDef) {
-        await store.putBelief({
-          concept_id: memory.id,
-          old_definition: memory.definition,
-          new_definition: newDef,
-          reason: `[hindsight] ${result.reason}`,
-          changed_at: new Date(),
-        });
-        await store.updateMemory(memory.id, {
-          definition: newDef,
           updated_at: new Date(),
         });
       }

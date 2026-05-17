@@ -11,7 +11,10 @@ const VALID_STATUSES = ['proposed', 'applied', 'rejected', 'reverted'] as const;
 
 export const evolutionListTool: ToolDefinition = {
   name: 'evolution_list',
-  description: 'List evolution proposals. Filter by status (default: proposed).',
+  category: 'journal',
+  description: 'Returns identity evolution proposals filtered by status (proposed, applied, rejected, reverted). Defaults to proposed.',
+  whenToUse: 'You want to review identity changes pending approval, or audit which have been applied.',
+  doNotUse: 'You want to record a new evolution — use evolve.',
   inputSchema: {
     type: 'object',
     properties: {

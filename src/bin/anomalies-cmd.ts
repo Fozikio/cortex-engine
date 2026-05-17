@@ -15,10 +15,8 @@
  */
 
 import { loadConfig } from './config-loader.js';
-import { SqliteCortexStore } from '../stores/sqlite.js';
-import { FirestoreCortexStore } from '../stores/firestore.js';
-import type { CortexStore } from '../core/store.js';
-import type { CortexConfig } from '../core/config.js';
+import { createStore } from './store-factory.js';
+import { parseNamespaceArgs, resolveNamespace, namespaceLabel } from './namespace-resolver.js';
 import type { OpsEntry, QueryFilter } from '../core/types.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -107,27 +105,6 @@ function parseArgs(args: string[]): ParsedArgs {
   }
 
   return { json, days };
-}
-
-// ─── Store Factory ────────────────────────────────────────────────────────────
-
-async function createStore(config: CortexConfig): Promise<CortexStore> {
-  if (config.store === 'firestore') {
-    const { getApps, initializeApp } = await import('firebase-admin/app');
-    if (getApps().length === 0) {
-      initializeApp({ projectId: config.store_options?.gcp_project_id });
-    }
-    const { getFirestore, FieldValue } = await import('firebase-admin/firestore');
-    const db = config.store_options?.firestore_database_id
-      ? getFirestore(config.store_options.firestore_database_id)
-      : getFirestore();
-    db.settings({ ignoreUndefinedProperties: true });
-    return new FirestoreCortexStore(db, '', FieldValue);
-  }
-
-  return new SqliteCortexStore(
-    config.store_options?.sqlite_path ?? './cortex.db',
-  );
 }
 
 // ─── Date Helpers ─────────────────────────────────────────────────────────────
@@ -435,15 +412,17 @@ function renderReport(report: AnomaliesReport): void {
 
 export async function runAnomalies(args: string[]): Promise<void> {
   const { json, days } = parseArgs(args);
+  const nsArgs = parseNamespaceArgs(args);
 
-  const config = loadConfig();
-  const store = await createStore(config);
+  const config = loadConfig(process.cwd(), nsArgs.agentName ?? undefined);
+  const namespace = resolveNamespace(nsArgs, config);
+  const store = await createStore(config, namespace);
 
   const now = new Date();
   const cutoff = new Date(now);
   cutoff.setDate(cutoff.getDate() - days);
 
-  process.stderr.write(`[fozikio anomalies] Loading session data (last ${days} days)...\n`);
+  process.stderr.write(`[fozikio anomalies] namespace: ${namespaceLabel(namespace)}, loading session data (last ${days} days)...\n`);
 
   const cutoffFilter: QueryFilter = { field: 'created_at', op: '>=', value: cutoff };
   const traceCutoffFilter: QueryFilter = { field: 'timestamp', op: '>=', value: cutoff };

@@ -35,7 +35,7 @@ import { FirestoreCortexStore } from '../stores/firestore.js';
 import { OllamaEmbedProvider, OllamaLLMProvider } from '../providers/ollama.js';
 import type { EmbedProvider } from '../core/embed.js';
 import type { LLMProvider } from '../core/llm.js';
-import { createTools, CORE_TOOLS } from './tools.js';
+import { createTools, CORE_TOOLS, composeMcpDescription } from './tools.js';
 import type { ToolContext, ToolDefinition } from './tools.js';
 import { loadPlugins } from '../plugins/loader.js';
 
@@ -166,11 +166,12 @@ export async function createServer(config: CortexConfig): Promise<Server> {
     { capabilities: { tools: {} } },
   );
 
-  // ListTools handler
+  // ListTools handler — descriptions composed from structured metadata so the
+  // LLM sees explicit category + whenToUse/doNotUse triage guidance.
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: activeTools.map(t => ({
       name: t.name,
-      description: t.description,
+      description: composeMcpDescription(t),
       inputSchema: t.inputSchema,
     })),
   }));

@@ -84,8 +84,10 @@ function evaluateTriggers(vitals: Record<VitalDimension, VitalDoc>): VitalSignal
 
 export const vitalsGetTool: ToolDefinition = {
   name: 'vitals_get',
-  description:
-    'Read all current vitals (curiosity, connection, confidence, creative_energy, frustration) with behavioral trigger evaluation.',
+  category: 'vitals',
+  description: 'Returns all current vital dimensions (curiosity, connection, confidence, creative_energy, frustration) with values, baselines, and evaluated behavioral triggers.',
+  whenToUse: 'You want a snapshot of the agent\'s current behavioral state and any active triggers.',
+  doNotUse: 'You want to write a vital value — use vitals_set.',
   inputSchema: {
     type: 'object',
     properties: {

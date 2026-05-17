@@ -47,3 +47,11 @@ src/
 - Strict TypeScript — `noUnusedLocals`, `noUnusedParameters`, `noImplicitReturns`
 - LLM/embedding providers are peer dependencies (optional) — don't add them as direct deps
 - SQLite via `better-sqlite3` (native addon) — needs rebuild on Node version changes
+
+## Concurrency invariants
+
+- One cortex-engine process per SQLite database. Cross-process locking is not provided.
+- Multi-step writes (memory + edges, belief + memory update, etc.) MUST use `store.withTransaction(async (txn) => { ... })`. Single writes do not need wrapping.
+- Inside the `withTransaction` closure: store ops only. No LLM calls, no embeds, no network. Fetch external data before the transaction and pass it in.
+- SQLite serializes transactions through a Promise-chained mutex per store instance; `busy_timeout = 5000` covers checkpoint contention.
+- See `docs/concurrency.md` for the full contract, Firestore parity notes, and call-site rationale.

@@ -8,7 +8,10 @@ import { dreamConsolidate } from '../engines/cognition.js';
 
 export const dreamTool: ToolDefinition = {
   name: 'dream',
-  description: 'Run the memory consolidation cycle — a 7-phase process that turns observations into long-term memories. Phase 1: cluster observations to existing memories. Phase 2: refine memory definitions. Phase 3: create new memories from unclustered observations. Phase 4: discover connections between active memories. Phase 5: FSRS spaced-repetition review. Phase 6: cross-domain pattern synthesis. Phase 7: narrative summary. This is a heavyweight operation — run periodically (not every session), typically during maintenance or cron.',
+  category: 'consolidation',
+  description: 'Runs the 7-phase consolidation cycle: cluster, refine, mint, link, FSRS review, cross-domain synthesis, narrative summary. Heavyweight — run on schedule.',
+  whenToUse: 'You want to process accumulated observations into long-term memories.',
+  doNotUse: 'You only need to ingest one document (use digest) or reflect on identity (use ruminate).',
   inputSchema: {
     type: 'object',
     properties: {

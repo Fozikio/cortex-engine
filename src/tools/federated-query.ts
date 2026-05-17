@@ -10,10 +10,10 @@ import type { FederationSearchResult } from '../federation/client.js';
 
 export const federatedQueryTool: ToolDefinition = {
   name: 'federated_query',
-  description:
-    'Search memories across federated cortex instances discovered via sigil. ' +
-    'Queries peer agents in parallel and aggregates results by relevance score. ' +
-    'Requires federation to be configured in cortex config.',
+  category: 'memory',
+  description: 'Returns memories aggregated from peer cortex instances discovered via the sigil registry. Best-effort — failed peers are reported but do not block results.',
+  whenToUse: 'Federation is configured and you want to search across other agents, not just this instance.',
+  doNotUse: 'Federation is not set up, or you only need this instance — use query or query_cross.',
   inputSchema: {
     type: 'object' as const,
     properties: {

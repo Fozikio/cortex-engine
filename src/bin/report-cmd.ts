@@ -16,6 +16,7 @@
 
 import { loadConfig } from './config-loader.js';
 import { createStore } from './store-factory.js';
+import { parseNamespaceArgs, resolveNamespace, namespaceLabel } from './namespace-resolver.js';
 import type { Memory, Observation, OpsEntry, Edge } from '../core/types.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -97,9 +98,11 @@ function statusIcon(
 
 export async function runReport(args: string[]): Promise<void> {
   const { days, jsonOutput } = parseArgs(args);
+  const nsArgs = parseNamespaceArgs(args);
 
-  const config = loadConfig();
-  const store = await createStore(config);
+  const config = loadConfig(process.cwd(), nsArgs.agentName ?? undefined);
+  const namespace = resolveNamespace(nsArgs, config);
+  const store = await createStore(config, namespace);
 
   const now = new Date();
   const windowCutoff = new Date(now);
@@ -108,7 +111,7 @@ export async function runReport(args: string[]): Promise<void> {
   staleCutoff.setDate(staleCutoff.getDate() - STALE_DAYS);
 
   if (!jsonOutput) {
-    process.stderr.write(`[report] Collecting data (last ${days} days)...\n`);
+    process.stderr.write(`[report] namespace: ${namespaceLabel(namespace)}, collecting data (last ${days} days)...\n`);
   }
 
   // ── Parallel data fetch ─────────────────────────────────────────────────

@@ -14,8 +14,10 @@ const VALID_TOPIC_MODES = ['operational', 'creative', 'reflective', 'unclear'] a
 
 export const socialUpdateTool: ToolDefinition = {
   name: 'social_update',
-  description:
-    'Log a social signal observation or update pattern notes. Call when you notice something about an interaction — energy, mode, engagement. Source required (interactive/discord/reddit/cron).',
+  category: 'social',
+  description: 'Updates the social signal model with a new observation — energy, mode, or engagement notes scoped by source (interactive/discord/reddit/cron). Returns the updated signal.',
+  whenToUse: 'You noticed something about how an interaction is going and want to update the social model.',
+  doNotUse: 'You want to inspect the model (use social_read) or score an external post (use social_score).',
   inputSchema: {
     type: 'object',
     properties: {

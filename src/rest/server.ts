@@ -19,6 +19,7 @@ import { join, dirname, extname, resolve, relative, isAbsolute } from 'node:path
 import { fileURLToPath } from 'node:url';
 import type { EngineContext } from '../mcp/server.js';
 import type { ToolDefinition } from '../mcp/tools.js';
+import { toToolMetadata } from '../mcp/tools.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -437,6 +438,22 @@ route('GET', '/api/tools', async (_req, res, _params, engine) => {
       description: t.description,
     })),
   });
+});
+
+// ── Structured tool metadata (spec: /tools endpoints) ────────────────────────
+
+route('GET', '/tools', async (_req, res, _params, engine) => {
+  json(res, {
+    tools: engine.activeTools.map(toToolMetadata),
+  });
+});
+
+route('GET', '/tools/:name', async (_req, res, params, engine) => {
+  const tool = engine.activeTools.find(t => t.name === params['name']);
+  if (!tool) {
+    return errorJson(res, `Unknown tool: ${params['name']}`, 404);
+  }
+  json(res, toToolMetadata(tool));
 });
 
 // ─── Auth Middleware ──────────────────────────────────────────────────────────

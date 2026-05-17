@@ -29,8 +29,10 @@ Product context:
 
 export const socialDraftTool: ToolDefinition = {
   name: 'social_draft',
-  description:
-    'Draft a reply tweet for a scored social signal. Queries cortex for talking points and interaction history, then generates a 280-char reply using the configured LLM. Always starts with @username.',
+  category: 'social',
+  description: 'Returns a 280-char reply tweet drafted from cortex talking points and prior interaction history. Always opens with @username.',
+  whenToUse: 'You scored a post worth replying to and want a grounded draft.',
+  doNotUse: 'You are still evaluating whether to engage — use social_score first.',
   inputSchema: {
     type: 'object',
     properties: {

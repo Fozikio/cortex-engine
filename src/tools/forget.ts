@@ -11,8 +11,10 @@ import { scheduleNext } from '../engines/fsrs.js';
 
 export const forgetTool: ToolDefinition = {
   name: 'forget',
-  description:
-    "Intentionally reduce a concept's salience. Not deletion — fading. Use when a belief is being revised and the old version should fade. Increments FSRS lapses.",
+  category: 'maintenance',
+  description: "Reduces a concept's salience and increments FSRS lapses so it fades from retrieval — not deletion. Returns the updated memory.",
+  whenToUse: 'A belief is being revised and the old version should stop surfacing without being hard-deleted.',
+  doNotUse: 'You want to keep the concept but record a new definition — use believe.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -45,30 +47,32 @@ export const forgetTool: ToolDefinition = {
     // Reduce salience — multiplicative fade, floor at 0.1
     const newSalience = Math.max(0.1, mem.salience * 0.6);
 
-    await store.updateMemory(conceptId, {
-      salience: newSalience,
-      faded: true,
-      fsrs: {
-        ...mem.fsrs,
-        stability: schedule.stability,
-        difficulty: schedule.difficulty,
-        lapses: mem.fsrs.lapses + 1,
-        state: 'relearning',
-        last_review: new Date(),
-      },
-      updated_at: new Date(),
-    });
-
-    // Log to beliefs if reason given
-    if (reason) {
-      await store.putBelief({
-        concept_id: conceptId,
-        old_definition: mem.definition,
-        new_definition: mem.definition, // definition unchanged — just fading
-        reason: `Intentionally faded: ${reason}`,
-        changed_at: new Date(),
+    // Memory update + belief log must commit together so the fade
+    // is never visible without its audit-trail entry.
+    await store.withTransaction(async (txn) => {
+      await txn.updateMemory(conceptId, {
+        salience: newSalience,
+        faded: true,
+        fsrs: {
+          ...mem.fsrs,
+          stability: schedule.stability,
+          difficulty: schedule.difficulty,
+          lapses: mem.fsrs.lapses + 1,
+          state: 'relearning',
+          last_review: new Date(),
+        },
+        updated_at: new Date(),
       });
-    }
+      if (reason) {
+        await txn.putBelief({
+          concept_id: conceptId,
+          old_definition: mem.definition,
+          new_definition: mem.definition, // definition unchanged — just fading
+          reason: `Intentionally faded: ${reason}`,
+          changed_at: new Date(),
+        });
+      }
+    });
 
     return {
       concept: mem.name,

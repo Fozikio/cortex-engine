@@ -12,8 +12,10 @@ const SIGNALS_DOC_ID = 'current';
 
 export const socialReadTool: ToolDefinition = {
   name: 'social_read',
-  description:
-    'Read current social cognition model — inferred interaction patterns from sessions, Discord, Reddit. Part of an ongoing experiment in social pattern recognition.',
+  category: 'social',
+  description: 'Returns the current social cognition model — inferred interaction patterns aggregated from session/Discord/Reddit sources.',
+  whenToUse: 'You want to inspect the agent\'s current model of its social dynamics.',
+  doNotUse: 'You want to record a new social observation (use social_update) or score a specific signal (use social_score).',
   inputSchema: {
     type: 'object',
     properties: {

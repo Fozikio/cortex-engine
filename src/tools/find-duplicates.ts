@@ -13,8 +13,10 @@ const BATCH_SIZE = 30;
 
 export const findDuplicatesTool: ToolDefinition = {
   name: 'find_duplicates',
-  description:
-    'Detect near-duplicate memories and optionally merge them. Returns pairs with similarity above threshold. Set merge=true to auto-merge (keeps higher-salience entry).',
+  category: 'maintenance',
+  description: 'Returns pairs of near-duplicate memories above a similarity threshold. With merge=true, auto-merges them keeping the higher-salience entry.',
+  whenToUse: 'You suspect duplicate memories have piled up and want to audit or clean them.',
+  doNotUse: 'You want to fade one specific concept — use forget. You want to revise it — use believe.',
   inputSchema: {
     type: 'object',
     properties: {

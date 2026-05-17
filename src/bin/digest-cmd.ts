@@ -19,6 +19,7 @@ import { digestDocument } from '../engines/digest.js';
 import type { DigestResult } from '../engines/digest.js';
 import { SqliteCortexStore } from '../stores/sqlite.js';
 import { OllamaEmbedProvider, OllamaLLMProvider } from '../providers/ollama.js';
+import { parseNamespaceArgs, resolveNamespace, namespaceLabel } from './namespace-resolver.js';
 import type { CortexConfig } from '../core/config.js';
 import type { CortexStore } from '../core/store.js';
 import type { EmbedProvider } from '../core/embed.js';
@@ -90,14 +91,14 @@ function parseArgs(args: string[]): ParsedArgs {
 
 // ─── Provider Setup ───────────────────────────────────────────────────────────
 
-function createProviders(config: CortexConfig): {
+function createProviders(config: CortexConfig, namespace: string): {
   store: CortexStore;
   embed: EmbedProvider;
   llm: LLMProvider;
 } {
   const store = new SqliteCortexStore(
     config.store_options?.sqlite_path ?? './cortex.db',
-    config.store_options?.sqlite_path ? undefined : undefined,
+    namespace,
   );
 
   const embed = new OllamaEmbedProvider({
@@ -341,10 +342,14 @@ export async function runDigest(args: string[]): Promise<void> {
       process.exit(1);
     }
 
-    const config = loadConfig();
-    const { store, embed, llm } = createProviders(config);
+    const nsArgs = parseNamespaceArgs(args);
+    if (parsed.namespace !== null) nsArgs.namespace = parsed.namespace;
+    const config = loadConfig(process.cwd(), nsArgs.agentName ?? undefined);
+    const namespace = resolveNamespace(nsArgs, config);
+    const { store, embed, llm } = createProviders(config, namespace);
 
-    await processSingleFile(absPath, parsed.pipeline, parsed.namespace, store, embed, llm);
+    process.stderr.write(`[digest] namespace: ${namespaceLabel(namespace)}\n`);
+    await processSingleFile(absPath, parsed.pipeline, namespace || null, store, embed, llm);
     return;
   }
 
@@ -369,8 +374,12 @@ export async function runDigest(args: string[]): Promise<void> {
     return;
   }
 
-  const config = loadConfig();
-  const { store, embed, llm } = createProviders(config);
+  const nsArgs = parseNamespaceArgs(args);
+  if (parsed.namespace !== null) nsArgs.namespace = parsed.namespace;
+  const config = loadConfig(process.cwd(), nsArgs.agentName ?? undefined);
+  const namespace = resolveNamespace(nsArgs, config);
+  const { store, embed, llm } = createProviders(config, namespace);
+  process.stderr.write(`[digest] namespace: ${namespaceLabel(namespace)}\n`);
 
   let totalObservations = 0;
   let totalInsights = 0;

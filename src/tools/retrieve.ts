@@ -10,8 +10,10 @@ import type { ToolDefinition, ToolContext } from '../mcp/tools.js';
 
 export const retrieveTool: ToolDefinition = {
   name: 'retrieve',
-  description:
-    'Direct retrieval — fetch a memory by ID, or perform semantic search with text. Returns matching memories with scores.',
+  category: 'memory',
+  description: 'Fetches a single memory by id and returns its full record, or runs a plain semantic search if given text instead.',
+  whenToUse: 'You already have a memory id from a previous result and want its full content.',
+  doNotUse: 'You only have a fuzzy reference or topic — use query for ranked semantic search with retrievability weighting.',
   inputSchema: {
     type: 'object',
     properties: {

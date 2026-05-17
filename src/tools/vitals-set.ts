@@ -14,7 +14,10 @@ const VALID_DIMENSIONS: VitalDimension[] = [
 
 export const vitalsSetTool: ToolDefinition = {
   name: 'vitals_set',
-  description: 'Update a single vital dimension value (0.0-1.0).',
+  category: 'vitals',
+  description: 'Updates one vital dimension to a value in 0.0-1.0 with an optional note. Returns the updated vital record.',
+  whenToUse: 'You explicitly want to set a vital value — usually from a triggered behavioral update.',
+  doNotUse: 'You want to read the current state — use vitals_get.',
   inputSchema: {
     type: 'object',
     properties: {

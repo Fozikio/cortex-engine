@@ -11,8 +11,10 @@ const RETRIEVAL_TRACES = 'retrieval_traces';
 
 export const retrievalAuditTool: ToolDefinition = {
   name: 'retrieval_audit',
-  description:
-    'Analyze retrieval traces to find patterns — which tools get retried, which heuristic rules misfire, where routing is consistently wrong.',
+  category: 'maintenance',
+  description: 'Returns retrieval-trace patterns over the last N days — retried tools, misfiring heuristics, and routing weaknesses.',
+  whenToUse: 'You want to debug or improve retrieval — which tools agents tried, where they retried, why.',
+  doNotUse: 'You only want to know consolidation health — use consolidation_status.',
   inputSchema: {
     type: 'object',
     properties: {

@@ -12,8 +12,10 @@ const SYSTEM_COLLECTION = 'system';
 
 export const consolidationStatusTool: ToolDefinition = {
   name: 'consolidation_status',
-  description:
-    'Read-only: last dream summary, consolidation quality trend (last 7 dreams), and sleep pressure.',
+  category: 'maintenance',
+  description: 'Returns the last dream summary, quality trend across the last 7 dreams, and current sleep pressure — a full read-only health snapshot.',
+  whenToUse: 'You want to audit whether consolidation has been running and producing good results.',
+  doNotUse: 'You only need the unconsolidated-observation backlog signal — use sleep_pressure.',
   inputSchema: {
     type: 'object',
     properties: {

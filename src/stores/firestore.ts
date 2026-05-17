@@ -9,7 +9,8 @@
  * CortexStore interface, so engines work identically on either backend.
  */
 
-import type { Firestore, CollectionReference, DocumentData, FieldValue as FieldValueType } from '@google-cloud/firestore';
+import type { Firestore, CollectionReference, DocumentData, FieldValue as FieldValueType, Transaction } from '@google-cloud/firestore';
+import { randomUUID } from 'node:crypto';
 import type { CortexStore, StoreCapabilities } from '../core/store.js';
 import { CORTEX_STORE_SCHEMA_VERSION } from '../core/store.js';
 import { validateNamespace } from './_validate.js';
@@ -623,12 +624,28 @@ export class FirestoreCortexStore implements CortexStore {
   }
 
   // ─── Transactions ──────────────────────────────────────────────────────────
-  // PRELUDE STUB: non-atomic passthrough. Agent A replaces with Firestore
-  // runTransaction wrapper. See
-  // docs/superpowers/specs/2026-05-16-concurrency-audit-design.md.
 
+  /**
+   * Wraps db.runTransaction so any direct ref.set/update/delete issued through
+   * the txn-bound proxy commits atomically. The proxy implements only the
+   * subset of CortexStore that maps cleanly onto Firestore's reads-before-writes
+   * transactional model: typed put/get/update for memories, observations,
+   * edges, ops, signals, beliefs, plus generic put/get/update/delete.
+   *
+   * Unsupported inside the txn fn: findNearest (no transactional vector search),
+   * queries that scan (no transactional query()), countDocuments, getRecent*,
+   * getAllMemories, getBeliefHistory, queryOps. Callers needing those reads
+   * must perform them outside the transaction and pass the IDs in.
+   *
+   * Nested calls are forbidden — Firestore actually allows nesting but mixing
+   * outer reads with inner writes is a known footgun, so we treat parity with
+   * SQLite as the contract.
+   */
   async withTransaction<T>(fn: (txn: CortexStore) => Promise<T>): Promise<T> {
-    return await fn(this);
+    return await this.db.runTransaction(async (txn) => {
+      const proxy = new FirestoreTxnProxy(this, this.db, this.ns, txn);
+      return await fn(proxy);
+    });
   }
 
   // ─── Upserts (ID-preserving) ───────────────────────────────────────────────
@@ -751,5 +768,375 @@ export class FirestoreCortexStore implements CortexStore {
       namespace: this.ns,
       backend: 'firestore',
     };
+  }
+}
+
+// ─── FirestoreTxnProxy ────────────────────────────────────────────────────────
+
+/**
+ * Transactional proxy bound to a single Firestore Transaction handle. Routes
+ * writes through txn.set/update/delete so they commit atomically and reads
+ * through txn.get so they participate in the transaction's optimistic
+ * concurrency check.
+ *
+ * Firestore transactions require reads-before-writes within the same fn run.
+ * Methods that scan (findNearest, query, count*, getRecent*, getAll*,
+ * getEdgesForMemories, queryOps, getBeliefHistory) are not supported in
+ * transaction context and throw.
+ */
+class FirestoreTxnProxy implements CortexStore {
+  constructor(
+    private readonly outer: FirestoreCortexStore,
+    private readonly db: Firestore,
+    private readonly ns: string,
+    private readonly txn: Transaction,
+  ) {}
+
+  private col(name: string): CollectionReference {
+    const collName = this.ns ? `${this.ns}_${name}` : name;
+    return this.db.collection(collName);
+  }
+
+  private unsupported(method: string): never {
+    throw new Error(
+      `${method} is not supported inside withTransaction on Firestore — perform the read outside the transaction.`,
+    );
+  }
+
+  // ─── Memory ────────────────────────────────────────────────────────────────
+
+  async putMemory(memory: Omit<Memory, 'id'>): Promise<string> {
+    const id = randomUUID();
+    this.txn.set(this.col('memories').doc(id), {
+      name: memory.name,
+      definition: memory.definition,
+      category: memory.category,
+      salience: memory.salience,
+      confidence: memory.confidence,
+      access_count: memory.access_count,
+      created_at: toTimestamp(memory.created_at),
+      updated_at: toTimestamp(memory.updated_at),
+      last_accessed: toTimestamp(memory.last_accessed),
+      source_files: memory.source_files ?? [],
+      embedding: memory.embedding?.length ? toVector(memory.embedding) : [],
+      tags: memory.tags ?? [],
+      fsrs: {
+        stability: memory.fsrs.stability,
+        difficulty: memory.fsrs.difficulty,
+        reps: memory.fsrs.reps,
+        lapses: memory.fsrs.lapses,
+        state: memory.fsrs.state,
+        last_review: memory.fsrs.last_review ? toTimestamp(memory.fsrs.last_review) : null,
+      },
+      faded: memory.faded ?? false,
+      salience_original: memory.salience_original ?? null,
+      provenance: provenanceData(memory.provenance) ?? null,
+    });
+    return id;
+  }
+
+  async getMemory(id: string): Promise<Memory | null> {
+    const snap = await this.txn.get(this.col('memories').doc(id));
+    if (!snap.exists) return null;
+    return docToMemory(snap.id, snap.data()!);
+  }
+
+  async updateMemory(id: string, updates: Partial<Omit<Memory, 'id'>>): Promise<void> {
+    const data: Record<string, unknown> = {};
+    if (updates.name !== undefined) data.name = updates.name;
+    if (updates.definition !== undefined) data.definition = updates.definition;
+    if (updates.category !== undefined) data.category = updates.category;
+    if (updates.salience !== undefined) data.salience = updates.salience;
+    if (updates.confidence !== undefined) data.confidence = updates.confidence;
+    if (updates.access_count !== undefined) data.access_count = updates.access_count;
+    if (updates.updated_at !== undefined) data.updated_at = toTimestamp(updates.updated_at);
+    if (updates.last_accessed !== undefined) data.last_accessed = toTimestamp(updates.last_accessed);
+    if (updates.source_files !== undefined) data.source_files = updates.source_files;
+    if (updates.embedding !== undefined) data.embedding = updates.embedding.length ? toVector(updates.embedding) : [];
+    if (updates.tags !== undefined) data.tags = updates.tags;
+    if (updates.faded !== undefined) data.faded = updates.faded;
+    if (updates.salience_original !== undefined) data.salience_original = updates.salience_original;
+    if (updates.fsrs !== undefined) {
+      data['fsrs.stability'] = updates.fsrs.stability;
+      data['fsrs.difficulty'] = updates.fsrs.difficulty;
+      data['fsrs.reps'] = updates.fsrs.reps;
+      data['fsrs.lapses'] = updates.fsrs.lapses;
+      data['fsrs.state'] = updates.fsrs.state;
+      data['fsrs.last_review'] = updates.fsrs.last_review ? toTimestamp(updates.fsrs.last_review) : null;
+    }
+    if (updates.provenance !== undefined) {
+      data.provenance = provenanceData(updates.provenance) ?? null;
+    }
+    if (Object.keys(data).length === 0) return;
+    this.txn.update(this.col('memories').doc(id), data);
+  }
+
+  findNearest(): Promise<SearchResult[]> { return this.unsupported('findNearest'); }
+
+  async touchMemory(id: string, fsrsUpdates: Partial<FSRSData>): Promise<void> {
+    const data: Record<string, unknown> = {
+      access_count: _FieldValue!.increment(1),
+      last_accessed: toTimestamp(new Date()),
+      updated_at: toTimestamp(new Date()),
+    };
+    if (fsrsUpdates.stability !== undefined) data['fsrs.stability'] = fsrsUpdates.stability;
+    if (fsrsUpdates.difficulty !== undefined) data['fsrs.difficulty'] = fsrsUpdates.difficulty;
+    if (fsrsUpdates.reps !== undefined) data['fsrs.reps'] = fsrsUpdates.reps;
+    if (fsrsUpdates.lapses !== undefined) data['fsrs.lapses'] = fsrsUpdates.lapses;
+    if (fsrsUpdates.state !== undefined) data['fsrs.state'] = fsrsUpdates.state;
+    if (fsrsUpdates.last_review !== undefined) {
+      data['fsrs.last_review'] = fsrsUpdates.last_review ? toTimestamp(fsrsUpdates.last_review) : null;
+    }
+    this.txn.update(this.col('memories').doc(id), data);
+  }
+
+  getAllMemories(): Promise<Memory[]> { return this.unsupported('getAllMemories'); }
+  getRecentMemories(): Promise<Memory[]> { return this.unsupported('getRecentMemories'); }
+
+  // ─── Observation ───────────────────────────────────────────────────────────
+
+  async putObservation(obs: Omit<Observation, 'id'>): Promise<string> {
+    const id = randomUUID();
+    this.txn.set(this.col('observations').doc(id), {
+      content: obs.content,
+      source_file: obs.source_file,
+      source_section: obs.source_section,
+      salience: obs.salience,
+      processed: obs.processed,
+      prediction_error: obs.prediction_error ?? null,
+      created_at: toTimestamp(obs.created_at),
+      updated_at: toTimestamp(obs.updated_at),
+      embedding: obs.embedding?.length ? toVector(obs.embedding) : null,
+      keywords: obs.keywords ?? [],
+      content_type: obs.content_type ?? 'declarative',
+      provenance: provenanceData(obs.provenance) ?? null,
+    });
+    return id;
+  }
+
+  getUnprocessedObservations(): Promise<Observation[]> { return this.unsupported('getUnprocessedObservations'); }
+
+  async markObservationProcessed(id: string): Promise<void> {
+    this.txn.update(this.col('observations').doc(id), {
+      processed: true,
+      updated_at: toTimestamp(new Date()),
+    });
+  }
+
+  // ─── Edge ──────────────────────────────────────────────────────────────────
+
+  async putEdge(edge: Omit<Edge, 'id'>): Promise<string> {
+    const id = randomUUID();
+    this.txn.set(this.col('edges').doc(id), {
+      source_id: edge.source_id,
+      target_id: edge.target_id,
+      relation: edge.relation,
+      weight: edge.weight,
+      evidence: edge.evidence,
+      created_at: toTimestamp(edge.created_at),
+    });
+    return id;
+  }
+
+  getEdgesFrom(): Promise<Edge[]> { return this.unsupported('getEdgesFrom'); }
+  getEdgesForMemories(): Promise<Edge[]> { return this.unsupported('getEdgesForMemories'); }
+
+  // ─── Ops ───────────────────────────────────────────────────────────────────
+
+  async appendOps(entry: Omit<OpsEntry, 'id'>): Promise<string> {
+    const id = randomUUID();
+    this.txn.set(this.col('ops').doc(id), {
+      content: entry.content,
+      type: entry.type,
+      status: entry.status,
+      project: entry.project ?? null,
+      session_ref: entry.session_ref,
+      keywords: entry.keywords ?? [],
+      created_at: toTimestamp(entry.created_at),
+      updated_at: toTimestamp(entry.updated_at),
+      expires_at: toTimestamp(entry.expires_at),
+      provenance: provenanceData(entry.provenance) ?? null,
+    });
+    return id;
+  }
+
+  queryOps(): Promise<OpsEntry[]> { return this.unsupported('queryOps'); }
+
+  async updateOps(id: string, updates: Partial<Omit<OpsEntry, 'id'>>): Promise<void> {
+    const data: Record<string, unknown> = { updated_at: toTimestamp(new Date()) };
+    if (updates.content !== undefined) data.content = updates.content;
+    if (updates.type !== undefined) data.type = updates.type;
+    if (updates.status !== undefined) data.status = updates.status;
+    if (updates.project !== undefined) data.project = updates.project;
+    if (updates.keywords !== undefined) data.keywords = updates.keywords;
+    if (updates.expires_at !== undefined) data.expires_at = toTimestamp(updates.expires_at);
+    this.txn.update(this.col('ops').doc(id), data);
+  }
+
+  // ─── Signal ────────────────────────────────────────────────────────────────
+
+  async putSignal(signal: Omit<Signal, 'id'>): Promise<string> {
+    const id = randomUUID();
+    this.txn.set(this.col('signals').doc(id), {
+      type: signal.type,
+      description: signal.description,
+      concept_ids: signal.concept_ids ?? [],
+      priority: signal.priority,
+      resolved: signal.resolved,
+      created_at: toTimestamp(signal.created_at),
+      resolution_note: signal.resolution_note ?? null,
+    });
+    return id;
+  }
+
+  // ─── Belief ────────────────────────────────────────────────────────────────
+
+  async putBelief(entry: Omit<BeliefEntry, 'id'>): Promise<string> {
+    const id = randomUUID();
+    this.txn.set(this.col('beliefs').doc(id), {
+      concept_id: entry.concept_id,
+      old_definition: entry.old_definition,
+      new_definition: entry.new_definition,
+      reason: entry.reason,
+      changed_at: toTimestamp(entry.changed_at),
+    });
+    return id;
+  }
+
+  getBeliefHistory(): Promise<BeliefEntry[]> { return this.unsupported('getBeliefHistory'); }
+
+  // ─── Generic ───────────────────────────────────────────────────────────────
+
+  async put(collection: string, doc: Record<string, unknown>): Promise<string> {
+    const id = (doc['id'] as string) ?? randomUUID();
+    const { id: _id, ...rest } = doc;
+    this.txn.set(this.col(collection).doc(id), rest, { merge: true });
+    return id;
+  }
+
+  async get(collection: string, id: string): Promise<Record<string, unknown> | null> {
+    const snap = await this.txn.get(this.col(collection).doc(id));
+    if (!snap.exists) return null;
+    return { id: snap.id, ...snap.data() } as Record<string, unknown>;
+  }
+
+  async update(collection: string, id: string, updates: Record<string, unknown>): Promise<void> {
+    const ref = this.col(collection).doc(id);
+    const snap = await this.txn.get(ref);
+    if (!snap.exists) throw new Error(`Document not found: ${collection}/${id}`);
+    const { id: _id, ...rest } = updates;
+    this.txn.update(ref, rest);
+  }
+
+  query(): Promise<Record<string, unknown>[]> { return this.unsupported('query'); }
+  countDocuments(): Promise<number> { return this.unsupported('countDocuments'); }
+
+  async delete(collection: string, id: string): Promise<void> {
+    this.txn.delete(this.col(collection).doc(id));
+  }
+
+  // ─── Transactions ─────────────────────────────────────────────────────────
+
+  withTransaction<T>(_fn: (txn: CortexStore) => Promise<T>): Promise<T> {
+    return Promise.reject(new Error('Nested withTransaction is not supported.'));
+  }
+
+  // ─── Upserts ──────────────────────────────────────────────────────────────
+
+  async upsertMemory(memory: Memory): Promise<void> {
+    this.txn.set(this.col('memories').doc(memory.id), {
+      name: memory.name,
+      definition: memory.definition,
+      category: memory.category,
+      salience: memory.salience,
+      confidence: memory.confidence,
+      access_count: memory.access_count,
+      created_at: toTimestamp(memory.created_at),
+      updated_at: toTimestamp(memory.updated_at),
+      last_accessed: toTimestamp(memory.last_accessed),
+      source_files: memory.source_files ?? [],
+      embedding: memory.embedding?.length ? toVector(memory.embedding) : [],
+      tags: memory.tags ?? [],
+      fsrs: {
+        stability: memory.fsrs.stability,
+        difficulty: memory.fsrs.difficulty,
+        reps: memory.fsrs.reps,
+        lapses: memory.fsrs.lapses,
+        state: memory.fsrs.state,
+        last_review: memory.fsrs.last_review ? toTimestamp(memory.fsrs.last_review) : null,
+      },
+      faded: memory.faded ?? false,
+      salience_original: memory.salience_original ?? null,
+      provenance: provenanceData(memory.provenance) ?? null,
+    });
+  }
+
+  async upsertObservation(obs: Observation): Promise<void> {
+    this.txn.set(this.col('observations').doc(obs.id), {
+      content: obs.content,
+      source_file: obs.source_file,
+      source_section: obs.source_section,
+      salience: obs.salience,
+      processed: obs.processed,
+      prediction_error: obs.prediction_error ?? null,
+      created_at: toTimestamp(obs.created_at),
+      updated_at: toTimestamp(obs.updated_at),
+      embedding: obs.embedding?.length ? toVector(obs.embedding) : null,
+      keywords: obs.keywords ?? [],
+      content_type: obs.content_type ?? 'declarative',
+      provenance: provenanceData(obs.provenance) ?? null,
+    });
+  }
+
+  async upsertEdge(edge: Edge): Promise<void> {
+    this.txn.set(this.col('edges').doc(edge.id), {
+      source_id: edge.source_id,
+      target_id: edge.target_id,
+      relation: edge.relation,
+      weight: edge.weight,
+      evidence: edge.evidence,
+      created_at: toTimestamp(edge.created_at),
+    });
+  }
+
+  async upsertOpsEntry(entry: OpsEntry): Promise<void> {
+    this.txn.set(this.col('ops').doc(entry.id), {
+      content: entry.content,
+      type: entry.type,
+      status: entry.status,
+      project: entry.project ?? null,
+      session_ref: entry.session_ref,
+      keywords: entry.keywords ?? [],
+      created_at: toTimestamp(entry.created_at),
+      updated_at: toTimestamp(entry.updated_at),
+      expires_at: toTimestamp(entry.expires_at),
+      provenance: provenanceData(entry.provenance) ?? null,
+    });
+  }
+
+  async upsertSignal(signal: Signal): Promise<void> {
+    this.txn.set(this.col('signals').doc(signal.id), {
+      type: signal.type,
+      description: signal.description,
+      concept_ids: signal.concept_ids ?? [],
+      priority: signal.priority,
+      resolved: signal.resolved,
+      created_at: toTimestamp(signal.created_at),
+      resolution_note: signal.resolution_note ?? null,
+    });
+  }
+
+  async upsertBelief(belief: BeliefEntry): Promise<void> {
+    this.txn.set(this.col('beliefs').doc(belief.id), {
+      concept_id: belief.concept_id,
+      old_definition: belief.old_definition,
+      new_definition: belief.new_definition,
+      reason: belief.reason,
+      changed_at: toTimestamp(belief.changed_at),
+    });
+  }
+
+  getCapabilities(): Promise<StoreCapabilities> {
+    return this.outer.getCapabilities();
   }
 }

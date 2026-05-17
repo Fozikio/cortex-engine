@@ -13,8 +13,10 @@ const MAX_CANDIDATES = 30;
 
 export const suggestLinksTool: ToolDefinition = {
   name: 'suggest_links',
-  description:
-    'Scan a text for phrases that match known concepts in the memory graph. Returns link suggestions with similarity scores.',
+  category: 'graph',
+  description: 'Returns candidate link suggestions — phrases in a text that match known concepts in the graph, with similarity scores. Does not create edges.',
+  whenToUse: 'You have a draft or note and want to see which existing concepts it could be linked to.',
+  doNotUse: 'You already decided on a link — use link to create it.',
   inputSchema: {
     type: 'object',
     properties: {

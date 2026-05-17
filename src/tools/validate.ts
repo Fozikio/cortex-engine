@@ -8,7 +8,10 @@ import { elapsedDaysSince, scheduleNext } from '../engines/fsrs.js';
 
 export const validateTool: ToolDefinition = {
   name: 'validate',
-  description: 'Confirm or deny a prediction. Correct predictions strengthen the memory (longer retention), incorrect ones weaken it (more frequent review). Use after predict() to close the feedback loop.',
+  category: 'beliefs',
+  description: 'Records the outcome of a prediction and updates FSRS scheduling — correct predictions extend review intervals, incorrect ones shorten them. Returns the new schedule.',
+  whenToUse: 'You ran predict() and now know whether the prediction held; you want to close the feedback loop.',
+  doNotUse: 'You are revising the underlying belief (use believe) or recording a new fact (use observe).',
   inputSchema: {
     type: 'object',
     properties: {

@@ -268,6 +268,15 @@ const SCHEMAS: Record<string, string> = {
 export class SqliteCortexStore implements CortexStore {
   private db: DatabaseType;
   private ns: string;
+  // Promise-chained mutex: each withTransaction() awaits the previous one
+  // before issuing BEGIN. Required because better-sqlite3 has no built-in
+  // queueing — two concurrent BEGINs throw SQLITE_ERROR "cannot start a
+  // transaction within a transaction".
+  private txnQueue: Promise<void> = Promise.resolve();
+  // Re-entry guard so a transactional fn that calls store.withTransaction
+  // recursively gets a clean error rather than deadlocking against its own
+  // queue slot.
+  private inTransaction = false;
 
   constructor(dbPath: string, namespace?: string) {
     validateNamespace(namespace);
@@ -279,6 +288,11 @@ export class SqliteCortexStore implements CortexStore {
     // (e.g. confine to a workspace root) before constructing this store.
     this.db = new Database(dbPath);
     this.db.pragma('journal_mode = WAL');
+    // Without busy_timeout, two concurrent writers race straight to SQLITE_BUSY
+    // instead of waiting through normal WAL checkpoint contention. 5s is long
+    // enough to ride out a checkpoint, short enough to fail visibly on a real
+    // deadlock. See docs/concurrency.md.
+    this.db.pragma('busy_timeout = 5000');
     this.db.pragma('foreign_keys = ON');
     this.ns = namespace ?? '';
     this.createTables();
@@ -707,12 +721,53 @@ export class SqliteCortexStore implements CortexStore {
   }
 
   // ─── Transactions ──────────────────────────────────────────────────────────
-  // PRELUDE STUB: non-atomic passthrough. Agent A replaces with a real
-  // better-sqlite3 transaction wrapper. See
-  // docs/superpowers/specs/2026-05-16-concurrency-audit-design.md.
 
+  /**
+   * Manual BEGIN IMMEDIATE / COMMIT / ROLLBACK rather than better-sqlite3's
+   * db.transaction() wrapper. The wrapper is purely synchronous and commits
+   * the moment the sync callback returns — it cannot survive an await
+   * suspension inside an async user closure, and refuses outright if the
+   * closure returns a Promise. Manual statements let the closure await store
+   * ops correctly.
+   *
+   * Concurrent calls are serialized through a Promise-chained queue: only
+   * one transaction is in flight at a time per store instance. Without this,
+   * two parallel BEGINs would race and the second would throw SQLITE_ERROR
+   * "cannot start a transaction within a transaction".
+   *
+   * Hard constraint on fn: avoid awaits to external systems (LLM, network).
+   * They hold the transaction open and block every other writer through the
+   * queue. Store ops are fine — they are sync under their async wrapper.
+   *
+   * Nested calls on the same store are forbidden and rejected explicitly.
+   * See docs/concurrency.md.
+   */
   async withTransaction<T>(fn: (txn: CortexStore) => Promise<T>): Promise<T> {
-    return await fn(this);
+    if (this.inTransaction) {
+      throw new Error(
+        'Nested withTransaction is not supported. Compose multi-step writes into a single outer transaction.',
+      );
+    }
+    const prior = this.txnQueue;
+    let releaseSlot!: () => void;
+    this.txnQueue = new Promise<void>((resolve) => { releaseSlot = resolve; });
+    try {
+      await prior;
+      this.inTransaction = true;
+      this.db.prepare('BEGIN IMMEDIATE').run();
+      try {
+        const result = await fn(this);
+        this.db.prepare('COMMIT').run();
+        return result;
+      } catch (err) {
+        try { this.db.prepare('ROLLBACK').run(); } catch { /* nothing to roll back */ }
+        throw err;
+      } finally {
+        this.inTransaction = false;
+      }
+    } finally {
+      releaseSlot();
+    }
   }
 
   // ─── Upserts (ID-preserving) ───────────────────────────────────────────────

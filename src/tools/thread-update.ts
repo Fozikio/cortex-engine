@@ -8,7 +8,10 @@ const COLLECTION = 'threads';
 
 export const threadUpdateTool: ToolDefinition = {
   name: 'thread_update',
-  description: 'Update a thread — change status, edit title/body, add session refs, link memories.',
+  category: 'threads',
+  description: 'Updates a thread by id — change status (open/active/blocked/parked), edit title/body, add session refs, or link related memories. Returns the updated thread.',
+  whenToUse: 'You are touching an existing thread to record progress, change its status, or link related context.',
+  doNotUse: 'You are closing out the thread (use thread_resolve) or creating a new one (use thread_create).',
   inputSchema: {
     type: 'object',
     properties: {

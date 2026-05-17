@@ -8,13 +8,16 @@ import { str, optStr, optNum, fireTriggers, fireBridges } from './_helpers.js';
 
 export const wonderTool: ToolDefinition = {
   name: 'wonder',
-  description: 'Record an open question or curiosity — something you want to explore but haven\'t resolved. Stored separately from factual observations so questions don\'t pollute knowledge retrieval. Use observe() for facts, wonder() for questions, speculate() for hypotheses.',
+  category: 'memory',
+  description: 'Records an open question as an interrogative observation, kept separate from factual memories so it does not pollute knowledge retrieval. Returns the new observation id.',
+  whenToUse: 'You want to capture something you are curious about but have not resolved — a question worth revisiting.',
+  doNotUse: 'You have a confirmed fact (use observe) or an untested hypothesis (use speculate).',
   inputSchema: {
     type: 'object',
     properties: {
       text: { type: 'string', description: 'The question or curiosity (e.g. "Why does the sync daemon stall after 300k seconds?")' },
       namespace: { type: 'string', description: 'Target namespace (defaults to default)' },
-      salience: { type: 'number', description: 'Importance score 1-10 (default: 5)' },
+      salience: { type: 'number', description: 'Importance score 0.0-1.0 (default: 0.5)' },
       context: { type: 'string', description: 'What prompted this question' },
     },
     required: ['text'],
@@ -22,7 +25,7 @@ export const wonderTool: ToolDefinition = {
   async handler(args, ctx) {
     const text = str(args, 'text');
     const namespace = optStr(args, 'namespace');
-    const salience = optNum(args, 'salience', 5);
+    const salience = optNum(args, 'salience', 0.5);
     const contextText = optStr(args, 'context') ?? '';
 
     const store = ctx.namespaces.getStore(namespace);

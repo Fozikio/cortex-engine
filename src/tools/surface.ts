@@ -9,7 +9,10 @@ const SIGNALS_COLLECTION = 'signals';
 
 export const surfaceTool: ToolDefinition = {
   name: 'surface',
-  description: 'List unresolved signals — contradictions, tensions, and gaps in the knowledge graph.',
+  category: 'meta',
+  description: 'Returns unresolved cognitive signals — contradictions, tensions, gaps — that the graph has flagged for attention.',
+  whenToUse: 'You want to see what the agent has open and unaddressed in its understanding.',
+  doNotUse: 'You want to close one out — use resolve. You want to record a new tension — use contradict.',
   inputSchema: {
     type: 'object',
     properties: {

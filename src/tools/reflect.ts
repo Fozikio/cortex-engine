@@ -8,7 +8,10 @@ import { extractKeywords } from '../engines/keywords.js';
 
 export const reflectTool: ToolDefinition = {
   name: 'reflect',
-  description: 'Synthesize what you know about a topic into a short reflective passage. Pulls related memories and generates a grounded reflection. The result is stored as a new observation for future retrieval.',
+  category: 'meta',
+  description: 'Returns a short reflection on a topic grounded in related memories. The reflection is also stored as a new observation for future retrieval.',
+  whenToUse: 'You want a synthesized take on a topic using existing memories — a focused mini-essay.',
+  doNotUse: 'You want a free-form identity reflection without a fixed topic — use ruminate.',
   inputSchema: {
     type: 'object',
     properties: {

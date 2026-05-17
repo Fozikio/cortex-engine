@@ -10,8 +10,10 @@ import { str, optStr } from './_helpers.js';
 
 export const beliefTool: ToolDefinition = {
   name: 'belief',
-  description:
-    "View the history of how a concept's definition has changed over time. Returns a chronological list of past definitions with timestamps and reasons. Use to understand how a belief evolved. Use believe() to record a new belief change.",
+  category: 'beliefs',
+  description: "Returns the chronological history of a concept's definitions with timestamps and reasons for each revision.",
+  whenToUse: 'You want to understand how the agent\'s view of a concept has evolved over time.',
+  doNotUse: 'You want to record a new belief change — use believe.',
   inputSchema: {
     type: 'object',
     properties: {

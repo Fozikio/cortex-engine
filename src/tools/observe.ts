@@ -14,7 +14,10 @@ import { str, optStr, fireTriggers, fireBridges } from './_helpers.js';
 
 export const observeTool: ToolDefinition = {
   name: 'observe',
-  description: 'Record a factual observation — something you learned, confirmed, or noticed to be true. Content should be declarative (statements of fact), not questions or speculation. For open questions use wonder(). For untested hypotheses use speculate(). Duplicate observations are automatically merged. Very novel, high-importance observations become new memories immediately; others queue for dream() consolidation.',
+  category: 'memory',
+  description: 'Records a declarative observation — duplicates merge into existing memories; high-novelty entries can become memories immediately, others queue for dream consolidation. Returns the new id.',
+  whenToUse: 'You learned or confirmed something to be true and want it captured as a fact.',
+  doNotUse: 'You have an open question (use wonder) or an untested hypothesis (use speculate).',
   inputSchema: {
     type: 'object',
     properties: {
@@ -132,24 +135,29 @@ export const observeTool: ToolDefinition = {
         : text.slice(0, 60).replace(/\s+\S*$/, '');
 
       const category = inferCategory(text);
-      const memId = await store.putMemory({
-        name: memName,
-        definition: text,
-        category,
-        salience,
-        confidence: 0.7,
-        access_count: 1,
-        created_at: new Date(),
-        updated_at: new Date(),
-        last_accessed: new Date(),
-        source_files: [sourceFile],
-        embedding,
-        tags: keywords.slice(0, 5),
-        fsrs: { stability: 1, difficulty: 0.3, reps: 0, lapses: 0, state: 'new', last_review: null },
-        memory_origin: 'organic',
+      // Memory creation + observation mark-processed must commit together;
+      // a crash between them leaves an orphan memory + the source obs
+      // re-entering the dream pipeline on the next cycle.
+      const memId = await store.withTransaction(async (txn) => {
+        const newId = await txn.putMemory({
+          name: memName,
+          definition: text,
+          category,
+          salience,
+          confidence: 0.7,
+          access_count: 1,
+          created_at: new Date(),
+          updated_at: new Date(),
+          last_accessed: new Date(),
+          source_files: [sourceFile],
+          embedding,
+          tags: keywords.slice(0, 5),
+          fsrs: { stability: 1, difficulty: 0.3, reps: 0, lapses: 0, state: 'new', last_review: null },
+          memory_origin: 'organic',
+        });
+        await txn.markObservationProcessed(id);
+        return newId;
       });
-
-      await store.markObservationProcessed(id);
 
       const createResult: Record<string, unknown> = {
         action: 'created',

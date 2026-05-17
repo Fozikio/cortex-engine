@@ -10,10 +10,10 @@ import type { ToolDefinition, ToolContext } from '../mcp/tools.js';
 
 export const queryCrossTool: ToolDefinition = {
   name: 'query_cross',
-  description:
-    'Search memories across other namespaces that allow cross-namespace reads. ' +
-    'Read-only — does not modify any memories or fire triggers/bridges. ' +
-    'Use to discover relevant knowledge stored in sibling namespaces.',
+  category: 'memory',
+  description: 'Returns memories from sibling namespaces that opt into cross-reads, ranked by similarity. Read-only — does not touch memories or fire triggers.',
+  whenToUse: 'You want to search beyond the current namespace into peer namespaces marked queryable.',
+  doNotUse: 'You only need results from the current namespace — use query.',
   inputSchema: {
     type: 'object' as const,
     properties: {

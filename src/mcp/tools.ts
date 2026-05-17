@@ -102,16 +102,95 @@ export interface ToolContext {
 
 // ─── Tool Definition ──────────────────────────────────────────────────────────
 
+/**
+ * Tool category for triage and discovery.
+ *
+ * Drives the `[category]` prefix in composed MCP descriptions and groups tools
+ * in the CLI/docs. Required on every tool — see the type union for valid values.
+ */
+export type ToolCategory =
+  | 'memory'
+  | 'consolidation'
+  | 'beliefs'
+  | 'ops'
+  | 'threads'
+  | 'journal'
+  | 'social'
+  | 'content'
+  | 'graph'
+  | 'vitals'
+  | 'agents'
+  | 'maintenance'
+  | 'meta';
+
+/** The set of valid tool categories, exported for runtime validation. */
+export const TOOL_CATEGORIES: readonly ToolCategory[] = [
+  'memory',
+  'consolidation',
+  'beliefs',
+  'ops',
+  'threads',
+  'journal',
+  'social',
+  'content',
+  'graph',
+  'vitals',
+  'agents',
+  'maintenance',
+  'meta',
+] as const;
+
 /** MCP-compatible tool definition with a working handler. */
 export interface ToolDefinition {
   name: string;
   description: string;
+  /** Discovery category — see ToolCategory. Drives the [category] prefix in MCP descriptions. */
+  category: ToolCategory;
+  /** One sentence, agent-facing. Names the trigger condition for picking this tool. */
+  whenToUse: string;
+  /** Optional disambiguator. Names the case where another tool is the better choice. */
+  doNotUse?: string;
   inputSchema: {
     type: 'object';
     properties: Record<string, unknown>;
     required?: string[];
   };
   handler: (args: Record<string, unknown>, ctx: ToolContext) => Promise<Record<string, unknown>>;
+}
+
+/** Structured tool metadata for the REST/CLI/docs surfaces. Strips the handler. */
+export type ToolMetadata = Omit<ToolDefinition, 'handler'>;
+
+/**
+ * Compose the MCP-facing description from a tool's structured metadata.
+ *
+ * Format:
+ *   [category] <description>
+ *
+ *   Use when: <whenToUse>
+ *   Don't use when: <doNotUse>   (optional)
+ *
+ * The [category] prefix lets an LLM scan for relevant tools by category
+ * before reading bodies. The Use when / Don't use when lines are the
+ * disambiguators against similar tools.
+ */
+export function composeMcpDescription(tool: ToolDefinition): string {
+  let out = `[${tool.category}] ${tool.description}`;
+  out += `\n\nUse when: ${tool.whenToUse}`;
+  if (tool.doNotUse) out += `\nDon't use when: ${tool.doNotUse}`;
+  return out;
+}
+
+/** Project a ToolDefinition down to its metadata-only shape for external surfaces. */
+export function toToolMetadata(tool: ToolDefinition): ToolMetadata {
+  return {
+    name: tool.name,
+    description: tool.description,
+    category: tool.category,
+    whenToUse: tool.whenToUse,
+    ...(tool.doNotUse ? { doNotUse: tool.doNotUse } : {}),
+    inputSchema: tool.inputSchema,
+  };
 }
 
 /** A plugin that contributes additional tools to the cortex engine. */

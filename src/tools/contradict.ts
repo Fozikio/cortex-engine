@@ -13,8 +13,10 @@ const SIGNALS_COLLECTION = 'signals';
 
 export const contradictTool: ToolDefinition = {
   name: 'contradict',
-  description:
-    'Record a contradiction between an observation and a belief or memory. Creates a CONTRADICTION signal. Provide observation_id and exactly one of belief_id or memory_id.',
+  category: 'beliefs',
+  description: 'Creates a CONTRADICTION signal linking an observation to a belief or memory it disputes. Returns the new signal id.',
+  whenToUse: 'You notice fresh evidence that disagrees with stored belief or memory and want it surfaced for later resolution.',
+  doNotUse: 'You want to update the belief itself (use believe) or close out a known contradiction (use resolve).',
   inputSchema: {
     type: 'object',
     properties: {

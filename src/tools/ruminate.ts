@@ -45,8 +45,10 @@ Only include items that represent genuine thinking — not restatements of the i
 
 export const ruminateTool: ToolDefinition = {
   name: 'ruminate',
-  description:
-    'Creative cognition — pulls context from threads, observations, evolution proposals, and journals, then produces a free-writing pass. Optionally extracts beliefs, speculations, and questions from the output and stores them. Use when you want to process accumulated experience rather than record a specific fact. Like dream() for identity.',
+  category: 'consolidation',
+  description: 'Free-writes from accumulated context (threads, observations, evolutions, journals), then optionally extracts beliefs, speculations, and questions and stores them. dream() for identity.',
+  whenToUse: 'You want to process accumulated experience and let new beliefs or questions emerge.',
+  doNotUse: 'You want to consolidate observations (use dream) or reflect on one topic (use reflect).',
   inputSchema: {
     type: 'object',
     properties: {

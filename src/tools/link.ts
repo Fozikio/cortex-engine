@@ -18,8 +18,10 @@ const VALID_RELATIONS: EdgeRelation[] = [
 
 export const linkTool: ToolDefinition = {
   name: 'link',
-  description:
-    "Manually create a typed relationship edge between two concepts. Use for connections you've reasoned to explicitly rather than waiting for dream consolidation.",
+  category: 'graph',
+  description: 'Creates a typed edge (extends, refines, contradicts, tensions-with, questions, supports, exemplifies, caused, related) between two concept ids. Returns the new edge id.',
+  whenToUse: 'You have reasoned to an explicit relationship between two concepts and want it in the graph now.',
+  doNotUse: 'You want the engine to find connections automatically — dream and suggest_links handle that.',
   inputSchema: {
     type: 'object',
     properties: {

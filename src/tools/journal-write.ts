@@ -8,7 +8,10 @@ const COLLECTION = 'journals';
 
 export const journalWriteTool: ToolDefinition = {
   name: 'journal_write',
-  description: 'Write or update a reflective journal entry. Uses date as document ID. Creates if new, updates if existing.',
+  category: 'journal',
+  description: 'Writes or updates a daily journal entry keyed by date — creates if new, updates if existing. Returns the entry id.',
+  whenToUse: 'You want to record a daily reflection on the day, a theme, or mood.',
+  doNotUse: 'You are capturing a factual observation (use observe) or a recurring thread of work (use thread_create).',
   inputSchema: {
     type: 'object',
     properties: {

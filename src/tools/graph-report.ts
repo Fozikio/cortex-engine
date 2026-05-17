@@ -11,8 +11,10 @@ const EDGES_COLLECTION = 'edges';
 
 export const graphReportTool: ToolDefinition = {
   name: 'graph_report',
-  description:
-    'Graph connectivity report — orphaned concepts, most/least connected nodes, memory density by category.',
+  category: 'graph',
+  description: 'Returns a connectivity report — orphaned concepts, most and least connected nodes, edge counts, and memory density by category.',
+  whenToUse: 'You want to inspect the shape of the knowledge graph or find isolated concepts to wire up.',
+  doNotUse: 'You want a list of edges from one specific node — use neighbors.',
   inputSchema: {
     type: 'object',
     properties: {

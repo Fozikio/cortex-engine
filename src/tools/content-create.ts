@@ -8,7 +8,10 @@ const COLLECTION = 'content';
 
 export const contentCreateTool: ToolDefinition = {
   name: 'content_create',
-  description: 'Create a content piece — idea, blog draft, social post, dev.to article. Starts the content pipeline.',
+  category: 'content',
+  description: 'Creates a content piece (idea, blog draft, social post, article) in the content pipeline. Returns the new content id in idea state.',
+  whenToUse: 'You want to start tracking a new piece of writing through the publishing pipeline.',
+  doNotUse: 'You are amending an existing piece — use content_update.',
   inputSchema: {
     type: 'object',
     properties: {

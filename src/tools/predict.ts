@@ -16,7 +16,10 @@ const TOP_K = 5;
 
 export const predictTool: ToolDefinition = {
   name: 'predict',
-  description: 'Anticipate what memories might be relevant given your current context. Looks at recent observations and an optional context hint to surface knowledge you might need next. Unlike query() which answers a specific question, predict() surfaces knowledge proactively. Best used at session start or when switching tasks.',
+  category: 'meta',
+  description: 'Returns memories likely to be relevant next, derived from recent observations and an optional context hint. Surfaces knowledge proactively rather than answering a question.',
+  whenToUse: 'You are starting a session or switching tasks and want context primed proactively.',
+  doNotUse: 'You have a specific question to ask — use query for targeted retrieval.',
   inputSchema: {
     type: 'object',
     properties: {

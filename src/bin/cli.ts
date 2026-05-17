@@ -26,6 +26,8 @@ import { runAnomalies } from './anomalies-cmd.js';
 import { runReport } from './report-cmd.js';
 import { runMaintain } from './maintain-cmd.js';
 import { runWander } from './wander-cmd.js';
+import { runMigrate } from './migrate-cmd.js';
+import { runToolsCmd } from './tools-cmd.js';
 import { createContext, startServer } from '../mcp/server.js';
 import { startRestServer } from '../rest/server.js';
 
@@ -49,6 +51,8 @@ Commands:
   report         Generate weekly quality report (memory, graph, ops, threads)
   maintain       Data maintenance (fix data issues, re-embed)
   wander         Walk through the memory graph
+  migrate        Clone data between two CortexStore backends
+  tools          List cortex tools by category
   help           Show this help message
 
 Serve options:
@@ -94,6 +98,22 @@ Wander options:
   --steps N      Number of hops (default: 5)
   --from "text"  Start walk from a topic
 
+Tools options:
+  --category <cat>   Filter to one category (memory, consolidation, beliefs, ops, threads, journal, social, content, graph, vitals, agents, maintenance, meta)
+  --search <q>       Substring match on name/description/whenToUse
+  --json             Emit JSON
+
+Migrate options:
+  --from <url>                 Source store URL (sqlite:..., firestore:..., json:...)
+  --to <url>                   Destination store URL
+  --namespace <ns>             Only migrate this namespace (informational; URL controls scope)
+  --rename-namespace <s>=<d>   Rewrite source namespace value during copy
+  --resume                     Resume from .cortex-migrate-state.json
+  --verify                     Sample-diff source vs destination after migration
+  --dry-run                    Validate compatibility only; no writes
+  --allow-merge                Allow migration into a non-empty destination
+  --batch-size <n>             Items per checkpoint flush (default: 100)
+
 Maintain re-embed flags:
   --dry-run              Show what would be re-embedded without writing
   --null-only            Only re-embed docs with missing embeddings
@@ -124,6 +144,8 @@ Examples:
   fozikio maintain re-embed --dry-run
   fozikio wander
   fozikio wander --steps 8 --from "authentication"
+  fozikio migrate --from sqlite:./cortex.db --to json:./backup.json
+  fozikio migrate --from json:./backup.json --to firestore:my-project --verify
 `);
 }
 
@@ -257,6 +279,18 @@ switch (command) {
       console.error('[fozikio] Wander error:', err);
       process.exit(1);
     });
+    break;
+
+  case 'migrate':
+    runMigrate(rest).catch(err => {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[fozikio] Migrate error: ${msg}`);
+      process.exit(1);
+    });
+    break;
+
+  case 'tools':
+    runToolsCmd(rest);
     break;
 
   case 'idapixl':

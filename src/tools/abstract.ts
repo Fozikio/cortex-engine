@@ -10,8 +10,10 @@ const MEMORIES_COLLECTION = 'memories';
 
 export const abstractTool: ToolDefinition = {
   name: 'abstract',
-  description:
-    'Propose a single higher-level concept (name and definition) that subsumes the given 2-10 memories. Does not write to the graph; returns the proposal only.',
+  category: 'consolidation',
+  description: 'Returns a proposed higher-level concept (name + definition) that subsumes 2-10 specified memories. Read-only — does not write to the graph.',
+  whenToUse: 'You have a cluster of related memories and want a candidate parent concept to consider creating.',
+  doNotUse: 'You want the engine to find and create abstractions automatically — dream handles that during consolidation.',
   inputSchema: {
     type: 'object',
     properties: {

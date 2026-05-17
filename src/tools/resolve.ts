@@ -9,7 +9,10 @@ const SIGNALS_COLLECTION = 'signals';
 
 export const resolveTool: ToolDefinition = {
   name: 'resolve',
-  description: 'Mark a signal as resolved with an optional note explaining how it was addressed.',
+  category: 'meta',
+  description: 'Marks an open signal (contradiction, tension, gap) as resolved with an optional note describing how. Returns the updated signal.',
+  whenToUse: 'You addressed something surfaced earlier and want to clear it from the open queue.',
+  doNotUse: 'You want to record a new contradiction — use contradict. You want to see open signals — use surface.',
   inputSchema: {
     type: 'object',
     properties: {

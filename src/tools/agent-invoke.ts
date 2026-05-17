@@ -20,13 +20,10 @@ import { extractKeywords } from '../engines/keywords.js';
 
 export const agentInvokeTool: ToolDefinition = {
   name: 'agent_invoke',
-  description:
-    'Dispatch a task to a cortex-backed agent using the configured LLM. ' +
-    'The agent queries cortex for existing knowledge, completes the task, ' +
-    'and stores findings back. Much cheaper than spawning a full subagent — ' +
-    'uses the configured LLM (Ollama, Gemini Flash, DeepSeek, etc.) instead ' +
-    'of the host model. Use for research, analysis, summarization, and ' +
-    'any task that benefits from accumulated cortex knowledge.',
+  category: 'agents',
+  description: 'Runs a task with the configured LLM grounded in cortex knowledge, storing findings back as observations.',
+  whenToUse: 'You want a cortex-aware subtask (research, analysis, summarization) on the cheap configured LLM.',
+  doNotUse: 'You only need raw memory retrieval — use query.',
   inputSchema: {
     type: 'object' as const,
     properties: {

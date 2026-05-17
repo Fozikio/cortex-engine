@@ -16,6 +16,7 @@
 
 import { loadConfig } from './config-loader.js';
 import { createStore, createEmbedProvider } from './store-factory.js';
+import { parseNamespaceArgs, resolveNamespace, namespaceLabel } from './namespace-resolver.js';
 import type { Memory, Observation } from '../core/types.js';
 
 // ─── Arg Parsing ─────────────────────────────────────────────────────────────
@@ -27,6 +28,8 @@ interface MaintainArgs {
   collection: 'memories' | 'observations';
   nullOnly: boolean;
   verbose: boolean;
+  namespace: string;
+  agentName: string | null;
 }
 
 function parseArgs(args: string[]): MaintainArgs {
@@ -38,6 +41,8 @@ function parseArgs(args: string[]): MaintainArgs {
   let collection: 'memories' | 'observations' = 'memories';
   let nullOnly = false;
   let verbose = false;
+
+  const nsArgs = parseNamespaceArgs(rest);
 
   for (let i = 0; i < rest.length; i++) {
     const arg = rest[i];
@@ -53,10 +58,19 @@ function parseArgs(args: string[]): MaintainArgs {
     } else if (arg === '--collection' && rest[i + 1]) {
       const val = rest[++i];
       if (val === 'observations') collection = 'observations';
+    } else if ((arg === '--namespace' || arg === '--agent') && rest[i + 1]) {
+      i++; // consume value; parseNamespaceArgs already captured it
     }
   }
 
-  return { subcommand, dryRun, limit, collection, nullOnly, verbose };
+  // Resolve namespace once here so both subcommands share the result.
+  const config = loadConfig(process.cwd(), nsArgs.agentName ?? undefined);
+  const namespace = resolveNamespace(nsArgs, config);
+
+  return {
+    subcommand, dryRun, limit, collection, nullOnly, verbose,
+    namespace, agentName: nsArgs.agentName,
+  };
 }
 
 // ─── fix subcommand ──────────────────────────────────────────────────────────
@@ -110,10 +124,10 @@ function detectBetterCategory(
 }
 
 async function runFix(args: MaintainArgs): Promise<void> {
-  const config = loadConfig();
-  const store = await createStore(config);
+  const config = loadConfig(process.cwd(), args.agentName ?? undefined);
+  const store = await createStore(config, args.namespace);
 
-  console.log('[maintain fix] Scanning memories for data issues...');
+  console.log(`[maintain fix] namespace: ${namespaceLabel(args.namespace)}. Scanning memories for data issues...`);
 
   const memories = await store.getAllMemories();
   console.log(`[maintain fix] Loaded ${memories.length} memories`);
@@ -240,10 +254,11 @@ const EMBED_DELAY_MS = parseInt(process.env['EMBED_DELAY_MS'] ?? '200', 10);
 const ABORT_THRESHOLD = 5;
 
 async function runReEmbed(args: MaintainArgs): Promise<void> {
-  const config = loadConfig();
-  const store = await createStore(config);
+  const config = loadConfig(process.cwd(), args.agentName ?? undefined);
+  const store = await createStore(config, args.namespace);
   const embed = await createEmbedProvider(config);
 
+  console.log(`[maintain re-embed] namespace: ${namespaceLabel(args.namespace)}`);
   console.log(`[maintain re-embed] Provider: ${embed.name} (${embed.dimensions}d)`);
   console.log(`[maintain re-embed] Collection: ${args.collection}`);
   console.log(`[maintain re-embed] Limit: ${args.limit}`);

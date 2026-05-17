@@ -8,7 +8,10 @@ import { optStr } from './_helpers.js';
 
 export const statsTool: ToolDefinition = {
   name: 'stats',
-  description: 'Get memory statistics — total memories, unprocessed observations, namespace info, and active tools.',
+  category: 'meta',
+  description: 'Returns counts and metadata for a namespace — total memories, unprocessed observations, active tools, and basic identity info.',
+  whenToUse: 'You want a quick high-level health summary of the cortex namespace.',
+  doNotUse: 'You want consolidation-specific health — use consolidation_status.',
   inputSchema: {
     type: 'object',
     properties: {

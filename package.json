@@ -1,6 +1,6 @@
 {
   "name": "@fozikio/cortex-engine",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "Portable cognitive engine for AI agents — storage, embeddings, memory, FSRS, and MCP server",
   "type": "module",
   "main": "dist/index.js",
@@ -133,6 +133,7 @@
     "fast-uri": "^3.1.2",
     "fast-xml-builder": "^1.1.7",
     "hono": "^4.12.18",
-    "@hono/node-server": "^1.19.13"
+    "@hono/node-server": "^1.19.13",
+    "uuid": "^11.1.0"
   }
 }

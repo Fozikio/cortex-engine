@@ -68,7 +68,7 @@
     "firebase-admin": "^13.0.0",
     "openai": "^4.77.0",
     "typescript": "^5.7.0",
-    "vitest": "^3.0.0"
+    "vitest": "^4.1.0"
   },
   "keywords": [
     "cortex",

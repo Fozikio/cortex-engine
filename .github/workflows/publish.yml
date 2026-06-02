@@ -33,8 +33,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          registry-url: 'https://registry.npmjs.org'
           cache: npm
+          # NOTE: deliberately NO registry-url. setup-node's registry-url writes
+          # an empty `_authToken` into .npmrc, which shadows OIDC (npm only does
+          # trusted-publishing OIDC when no registry token is configured).
 
       # Trusted publishing requires npm >= 11.5.1. Node 24 ships npm 11.x, but
       # upgrade explicitly so the version is never in doubt.
@@ -65,4 +67,4 @@ jobs:
           fi
 
       - name: Publish
-        run: npm publish --access public
+        run: npm publish --access public --loglevel verbose

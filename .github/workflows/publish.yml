@@ -1,0 +1,61 @@
+name: Publish to npm
+
+# Publishes this package to npm using OIDC Trusted Publishing — no NPM_TOKEN,
+# no 2FA OTP. The registry trusts this workflow's signed OIDC identity.
+#
+# Trigger: push a version tag (e.g. `git tag v1.2.2 && git push origin v1.2.2`)
+#          or run manually via the Actions tab (workflow_dispatch).
+#
+# One-time prerequisite (npmjs.com → package → Settings → Trusted Publisher):
+#   Provider:  GitHub Actions
+#   Org/user:  Fozikio
+#   Repository: <this repo>
+#   Workflow:  publish.yml
+#   Allowed action: npm publish   (must be selected explicitly for configs
+#                                  created after 2026-05-20)
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  id-token: write   # REQUIRED: lets npm authenticate this run via OIDC
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: 'https://registry.npmjs.org'
+          cache: npm
+
+      # Trusted publishing requires npm >= 11.5.1; Node 22 ships npm 10.x.
+      - name: Upgrade npm for OIDC support
+        run: npm install -g npm@latest
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      # Safety: a `v*` tag must match package.json (skipped for manual runs).
+      - name: Verify tag matches package version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::Tag v$TAG_VERSION does not match package.json version $PKG_VERSION"
+            exit 1
+          fi
+
+      - name: Publish
+        run: npm publish --access public

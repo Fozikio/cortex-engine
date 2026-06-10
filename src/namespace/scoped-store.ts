@@ -46,6 +46,10 @@ export class ScopedStore implements CortexStore {
     return this.inner.findNearest(embedding, limit);
   }
 
+  searchText(text: string, limit: number): Promise<SearchResult[]> {
+    return this.inner.searchText(text, limit);
+  }
+
   touchMemory(id: string, fsrsUpdates: Partial<FSRSData>): Promise<void> {
     return this.inner.touchMemory(id, fsrsUpdates);
   }

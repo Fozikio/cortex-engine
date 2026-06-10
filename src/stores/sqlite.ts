@@ -3,7 +3,9 @@
  *
  * Uses better-sqlite3 for synchronous SQLite access wrapped in async interface.
  * Vector search uses brute-force cosine similarity (sufficient for <10k memories).
- * Dates stored as ISO-8601 strings. Arrays stored as JSON text.
+ * Dates stored as ISO-8601 strings. Arrays stored as JSON text, except
+ * embeddings, which are raw Float32Array blobs (legacy JSON-text embeddings
+ * are converted in place at open time and still readable either way).
  */
 
 import Database from 'better-sqlite3';
@@ -72,6 +74,15 @@ function parseEmbedding(data: string | Buffer | null): number[] {
   try { return JSON.parse(data) as number[]; } catch { return []; }
 }
 
+/**
+ * Encode embedding as a raw Float32Array blob — ~4× smaller than JSON text
+ * and parse-free on read. Float64 inputs are truncated to float32; consumers
+ * comparing embeddings across backends must compare at float32 precision.
+ */
+function encodeEmbedding(embedding: number[] | null | undefined): Buffer {
+  return Buffer.from(new Float32Array(embedding ?? []).buffer);
+}
+
 function prov(row: { prov_model_id?: string | null; prov_model_family?: string | null; prov_client?: string | null; prov_agent?: string | null }): ModelProvenance | undefined {
   if (!row.prov_model_id) return undefined;
   return {
@@ -94,12 +105,14 @@ interface MemoryRow {
   faded: number; salience_original: number | null;
   prov_model_id: string | null; prov_model_family: string | null;
   prov_client: string | null; prov_agent: string | null;
+  last_retrieval_score: number | null; last_hop_count: number | null;
+  memory_origin: string | null;
 }
 
 interface ObservationRow {
   id: string; content: string; source_file: string; source_section: string;
   salience: number; processed: number; prediction_error: number | null;
-  created_at: string; updated_at: string; embedding: string | null;
+  created_at: string; updated_at: string; embedding: string | Buffer | null;
   keywords: string; content_type: string | null;
   prov_model_id: string | null; prov_model_family: string | null;
   prov_client: string | null; prov_agent: string | null;
@@ -146,6 +159,9 @@ function rowToMemory(r: MemoryRow): Memory {
     },
     faded: r.faded === 1, salience_original: r.salience_original ?? undefined,
     provenance: prov(r),
+    last_retrieval_score: r.last_retrieval_score ?? undefined,
+    last_hop_count: r.last_hop_count ?? undefined,
+    memory_origin: (r.memory_origin as Memory['memory_origin']) ?? undefined,
   };
 }
 
@@ -216,20 +232,21 @@ const SCHEMAS: Record<string, string> = {
     category TEXT NOT NULL, salience REAL NOT NULL DEFAULT 0.5,
     confidence REAL NOT NULL DEFAULT 0.5, access_count INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL, updated_at TEXT NOT NULL, last_accessed TEXT NOT NULL,
-    source_files TEXT NOT NULL DEFAULT '[]', embedding TEXT NOT NULL DEFAULT '[]',
+    source_files TEXT NOT NULL DEFAULT '[]', embedding BLOB NOT NULL DEFAULT (x''),
     tags TEXT NOT NULL DEFAULT '[]',
     fsrs_stability REAL NOT NULL DEFAULT 3.1262, fsrs_difficulty REAL NOT NULL DEFAULT 7.2102,
     fsrs_reps INTEGER NOT NULL DEFAULT 0, fsrs_lapses INTEGER NOT NULL DEFAULT 0,
     fsrs_state TEXT NOT NULL DEFAULT 'new', fsrs_last_review TEXT,
     faded INTEGER DEFAULT 0, salience_original REAL,
-    prov_model_id TEXT, prov_model_family TEXT, prov_client TEXT, prov_agent TEXT
+    prov_model_id TEXT, prov_model_family TEXT, prov_client TEXT, prov_agent TEXT,
+    last_retrieval_score REAL, last_hop_count INTEGER, memory_origin TEXT
   )`,
   observations: `CREATE TABLE IF NOT EXISTS %T (
     id TEXT PRIMARY KEY, content TEXT NOT NULL,
     source_file TEXT NOT NULL DEFAULT '', source_section TEXT NOT NULL DEFAULT '',
     salience REAL NOT NULL DEFAULT 0.5, processed INTEGER NOT NULL DEFAULT 0,
     prediction_error REAL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
-    embedding TEXT, keywords TEXT NOT NULL DEFAULT '[]',
+    embedding BLOB, keywords TEXT NOT NULL DEFAULT '[]',
     content_type TEXT DEFAULT 'declarative',
     prov_model_id TEXT, prov_model_family TEXT, prov_client TEXT, prov_agent TEXT
   )`,
@@ -294,6 +311,10 @@ export class SqliteCortexStore implements CortexStore {
     // deadlock. See docs/concurrency.md.
     this.db.pragma('busy_timeout = 5000');
     this.db.pragma('foreign_keys = ON');
+    // INSERT OR REPLACE only fires delete triggers when recursive_triggers is
+    // on. Without it, upsert* leaves stale rows in the external-content FTS
+    // index (which is kept in sync purely by triggers).
+    this.db.pragma('recursive_triggers = ON');
     this.ns = namespace ?? '';
     this.createTables();
   }
@@ -307,13 +328,46 @@ export class SqliteCortexStore implements CortexStore {
       this.db.exec(sql.replace('%T', this.t(name)));
     }
     this.migrateSchema();
+    this.createIndexes();
+    this.createFtsTable();
   }
 
   /** Add columns introduced after initial schema. Safe to run repeatedly (no-ops on new DBs). */
   private migrateSchema(): void {
-    const obsTable = this.t('observations');
+    this.addColumn(this.t('observations'), `content_type TEXT DEFAULT 'declarative'`);
+    // Retrieval feedback fields consumed by the dream pipeline's FSRS rating
+    // (see engines/cognition.ts). Older schemas dropped these silently.
+    this.addColumn(this.t('memories'), 'last_retrieval_score REAL');
+    this.addColumn(this.t('memories'), 'last_hop_count INTEGER');
+    this.addColumn(this.t('memories'), 'memory_origin TEXT');
+    this.migrateEmbeddingsToBlobs();
+  }
+
+  /**
+   * One-time conversion of legacy JSON-text embeddings to Float32Array blobs.
+   * Idempotent: only rows whose stored value is still text are touched, so
+   * re-opening an already-converted DB is a no-op scan. Column affinity does
+   * not matter here — SQLite stores blob values as blobs regardless of the
+   * declared column type, and typeof() reports the stored type.
+   */
+  private migrateEmbeddingsToBlobs(): void {
+    for (const table of [this.t('memories'), this.t('observations')]) {
+      const rows = this.db.prepare(
+        `SELECT id, embedding FROM ${table} WHERE typeof(embedding) = 'text'`
+      ).all() as { id: string; embedding: string }[];
+      if (rows.length === 0) continue;
+      const update = this.db.prepare(`UPDATE ${table} SET embedding = ? WHERE id = ?`);
+      this.db.transaction(() => {
+        for (const row of rows) {
+          update.run(encodeEmbedding(parseJSON<number[]>(row.embedding, [])), row.id);
+        }
+      })();
+    }
+  }
+
+  private addColumn(table: string, columnDef: string): void {
     try {
-      this.db.exec(`ALTER TABLE ${obsTable} ADD COLUMN content_type TEXT DEFAULT 'declarative'`);
+      this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${columnDef}`);
     } catch (err) {
       // better-sqlite3 surfaces ALTER TABLE errors via the `code` property.
       // SQLITE_ERROR with "duplicate column" / "already exists" is the
@@ -326,6 +380,51 @@ export class SqliteCortexStore implements CortexStore {
     }
   }
 
+  private createIndexes(): void {
+    const idx = (name: string, table: string, cols: string) =>
+      this.db.exec(`CREATE INDEX IF NOT EXISTS ${this.t(name)} ON ${this.t(table)} (${cols})`);
+
+    idx('idx_edges_source', 'edges', 'source_id');
+    idx('idx_edges_target', 'edges', 'target_id');
+    idx('idx_obs_processed', 'observations', 'processed, created_at');
+    idx('idx_memories_updated', 'memories', 'updated_at');
+    idx('idx_ops_created', 'ops', 'created_at');
+    idx('idx_beliefs_concept', 'beliefs', 'concept_id');
+  }
+
+  /**
+   * External-content FTS5 index over memory name/definition/tags, kept in
+   * sync by triggers. On first creation against a non-empty memories table,
+   * the index is rebuilt from existing rows.
+   */
+  private createFtsTable(): void {
+    const mem = this.t('memories');
+    const fts = this.t('memories_fts');
+
+    const exists = this.db.prepare(
+      `SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`
+    ).get(fts) !== undefined;
+
+    this.db.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS ${fts} USING fts5(
+      name, definition, tags, content='${mem}', content_rowid='rowid'
+    )`);
+
+    this.db.exec(`CREATE TRIGGER IF NOT EXISTS ${this.t('memories_fts_ai')} AFTER INSERT ON ${mem} BEGIN
+      INSERT INTO ${fts}(rowid, name, definition, tags) VALUES (new.rowid, new.name, new.definition, new.tags);
+    END`);
+    this.db.exec(`CREATE TRIGGER IF NOT EXISTS ${this.t('memories_fts_ad')} AFTER DELETE ON ${mem} BEGIN
+      INSERT INTO ${fts}(${fts}, rowid, name, definition, tags) VALUES ('delete', old.rowid, old.name, old.definition, old.tags);
+    END`);
+    this.db.exec(`CREATE TRIGGER IF NOT EXISTS ${this.t('memories_fts_au')} AFTER UPDATE ON ${mem} BEGIN
+      INSERT INTO ${fts}(${fts}, rowid, name, definition, tags) VALUES ('delete', old.rowid, old.name, old.definition, old.tags);
+      INSERT INTO ${fts}(rowid, name, definition, tags) VALUES (new.rowid, new.name, new.definition, new.tags);
+    END`);
+
+    if (!exists) {
+      this.db.exec(`INSERT INTO ${fts}(${fts}) VALUES ('rebuild')`);
+    }
+  }
+
   // ─── Memory ────────────────────────────────────────────────────────────────
 
   async putMemory(memory: Omit<Memory, 'id'>): Promise<string> {
@@ -334,12 +433,14 @@ export class SqliteCortexStore implements CortexStore {
       id, name, definition, category, salience, confidence, access_count,
       created_at, updated_at, last_accessed, source_files, embedding, tags,
       fsrs_stability, fsrs_difficulty, fsrs_reps, fsrs_lapses, fsrs_state, fsrs_last_review,
-      faded, salience_original, prov_model_id, prov_model_family, prov_client, prov_agent
+      faded, salience_original, prov_model_id, prov_model_family, prov_client, prov_agent,
+      last_retrieval_score, last_hop_count, memory_origin
     ) VALUES (
       @id, @name, @definition, @category, @salience, @confidence, @access_count,
       @created_at, @updated_at, @last_accessed, @source_files, @embedding, @tags,
       @fsrs_stability, @fsrs_difficulty, @fsrs_reps, @fsrs_lapses, @fsrs_state, @fsrs_last_review,
-      @faded, @salience_original, @prov_model_id, @prov_model_family, @prov_client, @prov_agent
+      @faded, @salience_original, @prov_model_id, @prov_model_family, @prov_client, @prov_agent,
+      @last_retrieval_score, @last_hop_count, @memory_origin
     )`).run({
       id, name: memory.name, definition: memory.definition,
       category: memory.category, salience: memory.salience,
@@ -347,7 +448,7 @@ export class SqliteCortexStore implements CortexStore {
       created_at: toISO(memory.created_at), updated_at: toISO(memory.updated_at),
       last_accessed: toISO(memory.last_accessed),
       source_files: JSON.stringify(memory.source_files ?? []),
-      embedding: JSON.stringify(memory.embedding ?? []),
+      embedding: encodeEmbedding(memory.embedding),
       tags: JSON.stringify(memory.tags ?? []),
       fsrs_stability: memory.fsrs.stability, fsrs_difficulty: memory.fsrs.difficulty,
       fsrs_reps: memory.fsrs.reps, fsrs_lapses: memory.fsrs.lapses,
@@ -358,6 +459,9 @@ export class SqliteCortexStore implements CortexStore {
       prov_model_family: memory.provenance?.model_family ?? null,
       prov_client: memory.provenance?.client ?? null,
       prov_agent: memory.provenance?.agent ?? null,
+      last_retrieval_score: memory.last_retrieval_score ?? null,
+      last_hop_count: memory.last_hop_count ?? null,
+      memory_origin: memory.memory_origin ?? null,
     });
     return id;
   }
@@ -380,7 +484,7 @@ export class SqliteCortexStore implements CortexStore {
     if (updates.updated_at !== undefined) { sets.push('updated_at = @ua'); vals.ua = updates.updated_at.toISOString(); }
     if (updates.last_accessed !== undefined) { sets.push('last_accessed = @la'); vals.la = updates.last_accessed.toISOString(); }
     if (updates.source_files !== undefined) { sets.push('source_files = @sf'); vals.sf = JSON.stringify(updates.source_files); }
-    if (updates.embedding !== undefined) { sets.push('embedding = @emb'); vals.emb = JSON.stringify(updates.embedding); }
+    if (updates.embedding !== undefined) { sets.push('embedding = @emb'); vals.emb = encodeEmbedding(updates.embedding); }
     if (updates.tags !== undefined) { sets.push('tags = @tags'); vals.tags = JSON.stringify(updates.tags); }
     if (updates.faded !== undefined) { sets.push('faded = @faded'); vals.faded = updates.faded ? 1 : 0; }
     if (updates.salience_original !== undefined) { sets.push('salience_original = @so'); vals.so = updates.salience_original; }
@@ -397,6 +501,9 @@ export class SqliteCortexStore implements CortexStore {
       vals.pmi = updates.provenance.model_id; vals.pmf = updates.provenance.model_family;
       vals.pc = updates.provenance.client; vals.pa = updates.provenance.agent;
     }
+    if (updates.last_retrieval_score !== undefined) { sets.push('last_retrieval_score = @lrs'); vals.lrs = updates.last_retrieval_score; }
+    if (updates.last_hop_count !== undefined) { sets.push('last_hop_count = @lhc'); vals.lhc = updates.last_hop_count; }
+    if (updates.memory_origin !== undefined) { sets.push('memory_origin = @mo'); vals.mo = updates.memory_origin; }
     if (sets.length === 0) return;
     this.db.prepare(`UPDATE ${this.t('memories')} SET ${sets.join(', ')} WHERE id = @id`).run(vals);
   }
@@ -420,6 +527,31 @@ export class SqliteCortexStore implements CortexStore {
         score,
         distance: 1 - score,
       }));
+  }
+
+  async searchText(text: string, limit: number): Promise<SearchResult[]> {
+    // Quote each token so user input can't break MATCH syntax (operators,
+    // unbalanced quotes). OR-join for recall; BM25 handles ranking.
+    const tokens = text.toLowerCase().match(/[a-z0-9_]{2,}/g) ?? [];
+    if (tokens.length === 0) return [];
+    const match = tokens.map((tok) => `"${tok}"`).join(' OR ');
+
+    const rows = this.db.prepare(
+      `SELECT m.*, bm25(${this.t('memories_fts')}) AS fts_rank
+       FROM ${this.t('memories_fts')} f
+       JOIN ${this.t('memories')} m ON m.rowid = f.rowid
+       WHERE ${this.t('memories_fts')} MATCH ? AND m.faded = 0
+       ORDER BY fts_rank
+       LIMIT ?`
+    ).all(match, limit) as Array<MemoryRow & { fts_rank: number }>;
+
+    // bm25() is smaller-is-better (negative for matches). Map its magnitude
+    // to 0-1 monotonically: x/(x+1). Rank order is the contract, not the value.
+    return rows.map((row) => {
+      const x = Math.max(0, -row.fts_rank);
+      const score = x / (x + 1);
+      return { memory: rowToSummary(row), score, distance: 1 - score };
+    });
   }
 
   async touchMemory(id: string, fsrsUpdates: Partial<FSRSData>): Promise<void> {
@@ -466,7 +598,7 @@ export class SqliteCortexStore implements CortexStore {
       sal: obs.salience, proc: obs.processed ? 1 : 0,
       pe: obs.prediction_error ?? null,
       ca: toISO(obs.created_at), ua: toISO(obs.updated_at),
-      emb: obs.embedding ? JSON.stringify(obs.embedding) : null,
+      emb: obs.embedding ? encodeEmbedding(obs.embedding) : null,
       kw: JSON.stringify(obs.keywords ?? []),
       ct: obs.content_type ?? 'declarative',
       pmi: obs.provenance?.model_id ?? null, pmf: obs.provenance?.model_family ?? null,
@@ -779,12 +911,14 @@ export class SqliteCortexStore implements CortexStore {
       id, name, definition, category, salience, confidence, access_count,
       created_at, updated_at, last_accessed, source_files, embedding, tags,
       fsrs_stability, fsrs_difficulty, fsrs_reps, fsrs_lapses, fsrs_state, fsrs_last_review,
-      faded, salience_original, prov_model_id, prov_model_family, prov_client, prov_agent
+      faded, salience_original, prov_model_id, prov_model_family, prov_client, prov_agent,
+      last_retrieval_score, last_hop_count, memory_origin
     ) VALUES (
       @id, @name, @definition, @category, @salience, @confidence, @access_count,
       @created_at, @updated_at, @last_accessed, @source_files, @embedding, @tags,
       @fsrs_stability, @fsrs_difficulty, @fsrs_reps, @fsrs_lapses, @fsrs_state, @fsrs_last_review,
-      @faded, @salience_original, @prov_model_id, @prov_model_family, @prov_client, @prov_agent
+      @faded, @salience_original, @prov_model_id, @prov_model_family, @prov_client, @prov_agent,
+      @last_retrieval_score, @last_hop_count, @memory_origin
     )`).run({
       id: memory.id, name: memory.name, definition: memory.definition,
       category: memory.category, salience: memory.salience,
@@ -792,7 +926,7 @@ export class SqliteCortexStore implements CortexStore {
       created_at: toISO(memory.created_at), updated_at: toISO(memory.updated_at),
       last_accessed: toISO(memory.last_accessed),
       source_files: JSON.stringify(memory.source_files ?? []),
-      embedding: JSON.stringify(memory.embedding ?? []),
+      embedding: encodeEmbedding(memory.embedding),
       tags: JSON.stringify(memory.tags ?? []),
       fsrs_stability: memory.fsrs.stability, fsrs_difficulty: memory.fsrs.difficulty,
       fsrs_reps: memory.fsrs.reps, fsrs_lapses: memory.fsrs.lapses,
@@ -803,6 +937,9 @@ export class SqliteCortexStore implements CortexStore {
       prov_model_family: memory.provenance?.model_family ?? null,
       prov_client: memory.provenance?.client ?? null,
       prov_agent: memory.provenance?.agent ?? null,
+      last_retrieval_score: memory.last_retrieval_score ?? null,
+      last_hop_count: memory.last_hop_count ?? null,
+      memory_origin: memory.memory_origin ?? null,
     });
   }
 
@@ -819,7 +956,7 @@ export class SqliteCortexStore implements CortexStore {
       sal: obs.salience, proc: obs.processed ? 1 : 0,
       pe: obs.prediction_error ?? null,
       ca: toISO(obs.created_at), ua: toISO(obs.updated_at),
-      emb: obs.embedding ? JSON.stringify(obs.embedding) : null,
+      emb: obs.embedding ? encodeEmbedding(obs.embedding) : null,
       kw: JSON.stringify(obs.keywords ?? []),
       ct: obs.content_type ?? 'declarative',
       pmi: obs.provenance?.model_id ?? null, pmf: obs.provenance?.model_family ?? null,

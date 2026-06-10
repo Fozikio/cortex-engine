@@ -54,6 +54,16 @@ export interface CortexStore {
   /** Find k nearest memories by embedding vector. Returns sorted by similarity desc. */
   findNearest(embedding: number[], limit: number): Promise<SearchResult[]>;
 
+  /**
+   * Lexical full-text search over memory name/definition/tags. Complements
+   * findNearest: catches exact-keyword matches that embeddings miss (IDs,
+   * proper nouns, rare terms). SQLite uses FTS5/BM25; JSON and Firestore
+   * fall back to token-overlap scoring. Scores are normalized to 0-1 but are
+   * NOT comparable to cosine similarity — rank order is the contract.
+   * Faded memories are excluded. An empty or stopword-only query returns [].
+   */
+  searchText(text: string, limit: number): Promise<SearchResult[]>;
+
   /** Increment access_count, update last_accessed and FSRS fields. */
   touchMemory(id: string, fsrsUpdates: Partial<FSRSData>): Promise<void>;
 

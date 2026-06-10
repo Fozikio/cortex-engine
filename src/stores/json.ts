@@ -14,6 +14,7 @@ import { randomUUID } from 'node:crypto';
 import type { CortexStore, StoreCapabilities } from '../core/store.js';
 import { CORTEX_STORE_SCHEMA_VERSION } from '../core/store.js';
 import { validateNamespace } from './_validate.js';
+import { lexicalSearch } from './_lexical.js';
 import type {
   Memory,
   MemorySummary,
@@ -190,6 +191,10 @@ export class JsonCortexStore implements CortexStore {
       })
       .sort((a, b) => b.score - a.score)
       .slice(0, limit);
+  }
+
+  async searchText(text: string, limit: number): Promise<SearchResult[]> {
+    return lexicalSearch(Object.values(this.data.memories).map(m => clone(m)), text, limit);
   }
 
   async touchMemory(id: string, fsrsUpdates: Partial<FSRSData>): Promise<void> {

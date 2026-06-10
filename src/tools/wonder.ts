@@ -49,6 +49,7 @@ export const wonderTool: ToolDefinition = {
     });
 
     const resolvedNs = namespace ?? ctx.namespaces.getDefaultNamespace();
+    ctx.consolidator?.notifyObservation(resolvedNs);
     await fireTriggers(ctx, resolvedNs, 'wonder', text, { observation_id: id }, ctx.allTools);
     await fireBridges(ctx, resolvedNs, 'wonder', { id, namespace: resolvedNs }, ctx.allTools);
 

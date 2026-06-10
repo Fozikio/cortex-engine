@@ -37,6 +37,7 @@ import type { EmbedProvider } from '../core/embed.js';
 import type { LLMProvider } from '../core/llm.js';
 import { createTools, CORE_TOOLS, composeMcpDescription } from './tools.js';
 import type { ToolContext, ToolDefinition } from './tools.js';
+import { SessionConsolidator } from '../engines/auto-consolidate.js';
 import { loadPlugins } from '../plugins/loader.js';
 
 // ─── Context Factory ──────────────────────────────────────────────────────────
@@ -103,7 +104,8 @@ export async function createContext(config: CortexConfig): Promise<EngineContext
   const allTools = [...coreTools, ...pluginTools];
 
   // 7. Build tool context (includes allTools for trigger/bridge pipelines)
-  const ctx: ToolContext = { namespaces, embed, llm, session, triggers, bridges, allTools };
+  const consolidator = new SessionConsolidator(namespaces, embed, llm);
+  const ctx: ToolContext = { namespaces, embed, llm, session, triggers, bridges, allTools, consolidator };
 
   // 7b. Wire federation if configured
   if (config.federation) {
@@ -139,6 +141,20 @@ export async function createContext(config: CortexConfig): Promise<EngineContext
       process.once('SIGINT', cleanup);
     }
   }
+
+  // 7c. Flush pending observations to memory on shutdown.
+  // SIGTERM/SIGINT: flush then explicitly exit so the process doesn't
+  // terminate before the async flush completes (signal handlers return
+  // immediately; the pending promise alone is not enough to keep the
+  // process alive once stdio closes).
+  const consolidatorFlushAndExit = () => {
+    consolidator.flush().catch(() => {}).finally(() => process.exit(0));
+  };
+  process.once('SIGTERM', consolidatorFlushAndExit);
+  process.once('SIGINT', consolidatorFlushAndExit);
+  // beforeExit fires when the event loop is empty — the flush promise
+  // keeps it alive until complete, so no explicit exit call is needed.
+  process.once('beforeExit', () => { consolidator.flush().catch(() => {}); });
 
   // 8. Filter active tools by namespace config + core set
   const activeToolNames = namespaces.getActiveTools();

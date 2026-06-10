@@ -14,6 +14,7 @@ import { randomUUID } from 'node:crypto';
 import type { CortexStore, StoreCapabilities } from '../core/store.js';
 import { CORTEX_STORE_SCHEMA_VERSION } from '../core/store.js';
 import { validateNamespace } from './_validate.js';
+import { lexicalSearch } from './_lexical.js';
 import type {
   Memory,
   MemorySummary,
@@ -118,6 +119,9 @@ function docToMemory(id: string, data: DocumentData): Memory {
     faded: data.faded ?? false,
     salience_original: data.salience_original ?? undefined,
     provenance: docProvenance(data),
+    last_retrieval_score: data.last_retrieval_score ?? undefined,
+    last_hop_count: data.last_hop_count ?? undefined,
+    memory_origin: data.memory_origin ?? undefined,
   };
 }
 
@@ -281,6 +285,9 @@ export class FirestoreCortexStore implements CortexStore {
       faded: memory.faded ?? false,
       salience_original: memory.salience_original ?? null,
       provenance: provenanceData(memory.provenance) ?? null,
+      last_retrieval_score: memory.last_retrieval_score ?? null,
+      last_hop_count: memory.last_hop_count ?? null,
+      memory_origin: memory.memory_origin ?? null,
     });
     return ref.id;
   }
@@ -318,6 +325,9 @@ export class FirestoreCortexStore implements CortexStore {
     if (updates.provenance !== undefined) {
       data.provenance = provenanceData(updates.provenance) ?? null;
     }
+    if (updates.last_retrieval_score !== undefined) data.last_retrieval_score = updates.last_retrieval_score;
+    if (updates.last_hop_count !== undefined) data.last_hop_count = updates.last_hop_count;
+    if (updates.memory_origin !== undefined) data.memory_origin = updates.memory_origin;
 
     if (Object.keys(data).length === 0) return;
     await this.col('memories').doc(id).update(data);
@@ -344,6 +354,14 @@ export class FirestoreCortexStore implements CortexStore {
         distance,
       };
     });
+  }
+
+  async searchText(text: string, limit: number): Promise<SearchResult[]> {
+    // Firestore has no native full-text search; fall back to a token-overlap
+    // scan over all memories. Acceptable at cortex-engine scale (<10k); swap
+    // in an external search index if collections grow beyond that.
+    const memories = await this.getAllMemories();
+    return lexicalSearch(memories, text, limit);
   }
 
   async touchMemory(id: string, fsrsUpdates: Partial<FSRSData>): Promise<void> {
@@ -677,6 +695,9 @@ export class FirestoreCortexStore implements CortexStore {
       faded: memory.faded ?? false,
       salience_original: memory.salience_original ?? null,
       provenance: provenanceData(memory.provenance) ?? null,
+      last_retrieval_score: memory.last_retrieval_score ?? null,
+      last_hop_count: memory.last_hop_count ?? null,
+      memory_origin: memory.memory_origin ?? null,
     });
   }
 
@@ -831,6 +852,9 @@ class FirestoreTxnProxy implements CortexStore {
       faded: memory.faded ?? false,
       salience_original: memory.salience_original ?? null,
       provenance: provenanceData(memory.provenance) ?? null,
+      last_retrieval_score: memory.last_retrieval_score ?? null,
+      last_hop_count: memory.last_hop_count ?? null,
+      memory_origin: memory.memory_origin ?? null,
     });
     return id;
   }
@@ -867,11 +891,15 @@ class FirestoreTxnProxy implements CortexStore {
     if (updates.provenance !== undefined) {
       data.provenance = provenanceData(updates.provenance) ?? null;
     }
+    if (updates.last_retrieval_score !== undefined) data.last_retrieval_score = updates.last_retrieval_score;
+    if (updates.last_hop_count !== undefined) data.last_hop_count = updates.last_hop_count;
+    if (updates.memory_origin !== undefined) data.memory_origin = updates.memory_origin;
     if (Object.keys(data).length === 0) return;
     this.txn.update(this.col('memories').doc(id), data);
   }
 
   findNearest(): Promise<SearchResult[]> { return this.unsupported('findNearest'); }
+  searchText(): Promise<SearchResult[]> { return this.unsupported('searchText'); }
 
   async touchMemory(id: string, fsrsUpdates: Partial<FSRSData>): Promise<void> {
     const data: Record<string, unknown> = {
@@ -1068,6 +1096,9 @@ class FirestoreTxnProxy implements CortexStore {
       faded: memory.faded ?? false,
       salience_original: memory.salience_original ?? null,
       provenance: provenanceData(memory.provenance) ?? null,
+      last_retrieval_score: memory.last_retrieval_score ?? null,
+      last_hop_count: memory.last_hop_count ?? null,
+      memory_origin: memory.memory_origin ?? null,
     });
   }
 

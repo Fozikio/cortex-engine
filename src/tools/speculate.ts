@@ -49,6 +49,7 @@ export const speculateTool: ToolDefinition = {
     });
 
     const resolvedNs = namespace ?? ctx.namespaces.getDefaultNamespace();
+    ctx.consolidator?.notifyObservation(resolvedNs);
     await fireTriggers(ctx, resolvedNs, 'speculate', text, { observation_id: id }, ctx.allTools);
     await fireBridges(ctx, resolvedNs, 'speculate', { id, namespace: resolvedNs }, ctx.allTools);
 

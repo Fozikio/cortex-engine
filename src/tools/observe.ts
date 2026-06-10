@@ -191,8 +191,12 @@ export const observeTool: ToolDefinition = {
       message: `Observation stored (similarity: ${gate.max_similarity.toFixed(2)}) — will consolidate during next dream`,
     };
 
-    // Fire triggers and bridges after observe
+    // Notify the auto-consolidator so it can fire Phase A in the background
+    // when enough observations have accumulated (threshold = AUTO_THRESHOLD).
     const resolvedNs = namespace ?? ctx.namespaces.getDefaultNamespace();
+    ctx.consolidator?.notifyObservation(resolvedNs);
+
+    // Fire triggers and bridges after observe
     await fireTriggers(ctx, resolvedNs, 'observe', text, { observation_id: id, decision: gate.decision }, ctx.allTools);
     await fireBridges(ctx, resolvedNs, 'observe', result, ctx.allTools);
 

@@ -60,13 +60,17 @@ Hermes' OpenViking provider loads context progressively (~100 tokens →
   reformulations) + 2-hop spreading activation + full metadata
   (provenance, FSRS state, activation paths). Deep research.
 
+## Follow-up work (done)
+
+- **Embedding storage format** (June 2026): SQLite now stores embeddings as
+  raw `Float32Array` blobs (~4× smaller, parse-free reads). Legacy JSON-text
+  rows are converted in place when the store is opened — idempotent, only
+  text-typed rows are touched. Embeddings are float32-truncated on write, so
+  cross-backend comparisons (e.g. `verifyMigration` for json→sqlite) compare
+  at float32 precision via `Math.fround`.
+
 ## Known gaps (deliberately not addressed)
 
-- **Embedding storage format**: memories store embeddings as JSON text
-  (~4× larger and slower to parse than `Float32Array` blobs; the read path
-  already supports blobs). Not switched because float32 rounding changes
-  exact-equality semantics relied on by migration round-trip tests.
-  Worth doing with a planned migration.
 - **Brute-force ANN**: `findNearest` on SQLite scans every row. Documented
   as fine below 10k memories; beyond that, consider `sqlite-vec` or an HNSW
   sidecar.

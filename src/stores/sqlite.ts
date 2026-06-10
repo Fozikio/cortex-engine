@@ -3,7 +3,9 @@
  *
  * Uses better-sqlite3 for synchronous SQLite access wrapped in async interface.
  * Vector search uses brute-force cosine similarity (sufficient for <10k memories).
- * Dates stored as ISO-8601 strings. Arrays stored as JSON text.
+ * Dates stored as ISO-8601 strings. Arrays stored as JSON text, except
+ * embeddings, which are raw Float32Array blobs (legacy JSON-text embeddings
+ * are converted in place at open time and still readable either way).
  */
 
 import Database from 'better-sqlite3';
@@ -72,6 +74,15 @@ function parseEmbedding(data: string | Buffer | null): number[] {
   try { return JSON.parse(data) as number[]; } catch { return []; }
 }
 
+/**
+ * Encode embedding as a raw Float32Array blob — ~4× smaller than JSON text
+ * and parse-free on read. Float64 inputs are truncated to float32; consumers
+ * comparing embeddings across backends must compare at float32 precision.
+ */
+function encodeEmbedding(embedding: number[] | null | undefined): Buffer {
+  return Buffer.from(new Float32Array(embedding ?? []).buffer);
+}
+
 function prov(row: { prov_model_id?: string | null; prov_model_family?: string | null; prov_client?: string | null; prov_agent?: string | null }): ModelProvenance | undefined {
   if (!row.prov_model_id) return undefined;
   return {
@@ -101,7 +112,7 @@ interface MemoryRow {
 interface ObservationRow {
   id: string; content: string; source_file: string; source_section: string;
   salience: number; processed: number; prediction_error: number | null;
-  created_at: string; updated_at: string; embedding: string | null;
+  created_at: string; updated_at: string; embedding: string | Buffer | null;
   keywords: string; content_type: string | null;
   prov_model_id: string | null; prov_model_family: string | null;
   prov_client: string | null; prov_agent: string | null;
@@ -221,7 +232,7 @@ const SCHEMAS: Record<string, string> = {
     category TEXT NOT NULL, salience REAL NOT NULL DEFAULT 0.5,
     confidence REAL NOT NULL DEFAULT 0.5, access_count INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL, updated_at TEXT NOT NULL, last_accessed TEXT NOT NULL,
-    source_files TEXT NOT NULL DEFAULT '[]', embedding TEXT NOT NULL DEFAULT '[]',
+    source_files TEXT NOT NULL DEFAULT '[]', embedding BLOB NOT NULL DEFAULT (x''),
     tags TEXT NOT NULL DEFAULT '[]',
     fsrs_stability REAL NOT NULL DEFAULT 3.1262, fsrs_difficulty REAL NOT NULL DEFAULT 7.2102,
     fsrs_reps INTEGER NOT NULL DEFAULT 0, fsrs_lapses INTEGER NOT NULL DEFAULT 0,
@@ -235,7 +246,7 @@ const SCHEMAS: Record<string, string> = {
     source_file TEXT NOT NULL DEFAULT '', source_section TEXT NOT NULL DEFAULT '',
     salience REAL NOT NULL DEFAULT 0.5, processed INTEGER NOT NULL DEFAULT 0,
     prediction_error REAL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
-    embedding TEXT, keywords TEXT NOT NULL DEFAULT '[]',
+    embedding BLOB, keywords TEXT NOT NULL DEFAULT '[]',
     content_type TEXT DEFAULT 'declarative',
     prov_model_id TEXT, prov_model_family TEXT, prov_client TEXT, prov_agent TEXT
   )`,
@@ -329,6 +340,29 @@ export class SqliteCortexStore implements CortexStore {
     this.addColumn(this.t('memories'), 'last_retrieval_score REAL');
     this.addColumn(this.t('memories'), 'last_hop_count INTEGER');
     this.addColumn(this.t('memories'), 'memory_origin TEXT');
+    this.migrateEmbeddingsToBlobs();
+  }
+
+  /**
+   * One-time conversion of legacy JSON-text embeddings to Float32Array blobs.
+   * Idempotent: only rows whose stored value is still text are touched, so
+   * re-opening an already-converted DB is a no-op scan. Column affinity does
+   * not matter here — SQLite stores blob values as blobs regardless of the
+   * declared column type, and typeof() reports the stored type.
+   */
+  private migrateEmbeddingsToBlobs(): void {
+    for (const table of [this.t('memories'), this.t('observations')]) {
+      const rows = this.db.prepare(
+        `SELECT id, embedding FROM ${table} WHERE typeof(embedding) = 'text'`
+      ).all() as { id: string; embedding: string }[];
+      if (rows.length === 0) continue;
+      const update = this.db.prepare(`UPDATE ${table} SET embedding = ? WHERE id = ?`);
+      this.db.transaction(() => {
+        for (const row of rows) {
+          update.run(encodeEmbedding(parseJSON<number[]>(row.embedding, [])), row.id);
+        }
+      })();
+    }
   }
 
   private addColumn(table: string, columnDef: string): void {
@@ -414,7 +448,7 @@ export class SqliteCortexStore implements CortexStore {
       created_at: toISO(memory.created_at), updated_at: toISO(memory.updated_at),
       last_accessed: toISO(memory.last_accessed),
       source_files: JSON.stringify(memory.source_files ?? []),
-      embedding: JSON.stringify(memory.embedding ?? []),
+      embedding: encodeEmbedding(memory.embedding),
       tags: JSON.stringify(memory.tags ?? []),
       fsrs_stability: memory.fsrs.stability, fsrs_difficulty: memory.fsrs.difficulty,
       fsrs_reps: memory.fsrs.reps, fsrs_lapses: memory.fsrs.lapses,
@@ -450,7 +484,7 @@ export class SqliteCortexStore implements CortexStore {
     if (updates.updated_at !== undefined) { sets.push('updated_at = @ua'); vals.ua = updates.updated_at.toISOString(); }
     if (updates.last_accessed !== undefined) { sets.push('last_accessed = @la'); vals.la = updates.last_accessed.toISOString(); }
     if (updates.source_files !== undefined) { sets.push('source_files = @sf'); vals.sf = JSON.stringify(updates.source_files); }
-    if (updates.embedding !== undefined) { sets.push('embedding = @emb'); vals.emb = JSON.stringify(updates.embedding); }
+    if (updates.embedding !== undefined) { sets.push('embedding = @emb'); vals.emb = encodeEmbedding(updates.embedding); }
     if (updates.tags !== undefined) { sets.push('tags = @tags'); vals.tags = JSON.stringify(updates.tags); }
     if (updates.faded !== undefined) { sets.push('faded = @faded'); vals.faded = updates.faded ? 1 : 0; }
     if (updates.salience_original !== undefined) { sets.push('salience_original = @so'); vals.so = updates.salience_original; }
@@ -564,7 +598,7 @@ export class SqliteCortexStore implements CortexStore {
       sal: obs.salience, proc: obs.processed ? 1 : 0,
       pe: obs.prediction_error ?? null,
       ca: toISO(obs.created_at), ua: toISO(obs.updated_at),
-      emb: obs.embedding ? JSON.stringify(obs.embedding) : null,
+      emb: obs.embedding ? encodeEmbedding(obs.embedding) : null,
       kw: JSON.stringify(obs.keywords ?? []),
       ct: obs.content_type ?? 'declarative',
       pmi: obs.provenance?.model_id ?? null, pmf: obs.provenance?.model_family ?? null,
@@ -892,7 +926,7 @@ export class SqliteCortexStore implements CortexStore {
       created_at: toISO(memory.created_at), updated_at: toISO(memory.updated_at),
       last_accessed: toISO(memory.last_accessed),
       source_files: JSON.stringify(memory.source_files ?? []),
-      embedding: JSON.stringify(memory.embedding ?? []),
+      embedding: encodeEmbedding(memory.embedding),
       tags: JSON.stringify(memory.tags ?? []),
       fsrs_stability: memory.fsrs.stability, fsrs_difficulty: memory.fsrs.difficulty,
       fsrs_reps: memory.fsrs.reps, fsrs_lapses: memory.fsrs.lapses,
@@ -922,7 +956,7 @@ export class SqliteCortexStore implements CortexStore {
       sal: obs.salience, proc: obs.processed ? 1 : 0,
       pe: obs.prediction_error ?? null,
       ca: toISO(obs.created_at), ua: toISO(obs.updated_at),
-      emb: obs.embedding ? JSON.stringify(obs.embedding) : null,
+      emb: obs.embedding ? encodeEmbedding(obs.embedding) : null,
       kw: JSON.stringify(obs.keywords ?? []),
       ct: obs.content_type ?? 'declarative',
       pmi: obs.provenance?.model_id ?? null, pmf: obs.provenance?.model_family ?? null,

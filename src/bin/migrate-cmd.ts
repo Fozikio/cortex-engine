@@ -737,8 +737,12 @@ function deepEqualJson(a: unknown, b: unknown): boolean {
 }
 
 function jsonNormalize(value: unknown): string {
-  return JSON.stringify(value, (_key, v) => {
+  return JSON.stringify(value, (key, v) => {
     if (v instanceof Date) return v.toISOString();
+    // SQLite stores embeddings as float32 blobs while JSON keeps full
+    // float64, so compare embeddings at float32 precision — otherwise a
+    // json→sqlite migration reports value diffs on every sampled memory.
+    if (key === 'embedding' && Array.isArray(v)) return v.map(Math.fround);
     return v;
   }, 0);
 }

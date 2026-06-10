@@ -13,6 +13,7 @@ import type { NamespaceManager } from '../namespace/manager.js';
 import type { TriggerRegistry } from '../triggers/registry.js';
 import type { BridgeRegistry } from '../bridges/registry.js';
 import type { FederationClient } from '../federation/client.js';
+import type { SessionConsolidator } from '../engines/auto-consolidate.js';
 
 // ─── Tool imports ────────────────────────────────────────────────────────────
 
@@ -84,6 +85,7 @@ import { contentUpdateTool } from '../tools/content-update.js';
 // Vitals tools
 import { vitalsGetTool } from '../tools/vitals-get.js';
 import { vitalsSetTool } from '../tools/vitals-set.js';
+import { contextTool } from '../tools/context.js';
 
 // ─── Tool Context ─────────────────────────────────────────────────────────────
 
@@ -99,6 +101,8 @@ export interface ToolContext {
   allTools: ToolDefinition[];
   /** Federation client for multi-instance coordination (optional, only if configured). */
   federation?: FederationClient;
+  /** Auto-consolidation engine — notified by observe/wonder/speculate after every write. */
+  consolidator?: SessionConsolidator;
 }
 
 // ─── Tool Definition ──────────────────────────────────────────────────────────
@@ -206,6 +210,7 @@ export interface ToolPlugin {
 export function createTools(): ToolDefinition[] {
   return [
     // Core cognitive tools
+    contextTool,
     queryTool,
     feedbackTool,
     observeTool,

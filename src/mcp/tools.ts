@@ -17,6 +17,7 @@ import type { FederationClient } from '../federation/client.js';
 // ─── Tool imports ────────────────────────────────────────────────────────────
 
 import { queryTool } from '../tools/query.js';
+import { feedbackTool } from '../tools/feedback.js';
 import { observeTool } from '../tools/observe.js';
 import { wonderTool } from '../tools/wonder.js';
 import { speculateTool } from '../tools/speculate.js';
@@ -206,6 +207,7 @@ export function createTools(): ToolDefinition[] {
   return [
     // Core cognitive tools
     queryTool,
+    feedbackTool,
     observeTool,
     wonderTool,
     speculateTool,

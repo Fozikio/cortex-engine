@@ -7,6 +7,7 @@ import type { CortexStore } from '../core/store.js';
 import {
   hydeExpand,
   spreadActivation,
+  cosineSimilarity,
 } from '../engines/memory.js';
 import { retrievability, elapsedDaysSince } from '../engines/fsrs.js';
 import { str, optStr, optNum, optBool, fireTriggers, fireBridges } from './_helpers.js';
@@ -26,6 +27,7 @@ export const queryTool: ToolDefinition = {
       hyde: { type: 'boolean', description: 'Expand query for better conceptual matches (default: true)' },
       min_score: { type: 'number', description: 'Minimum similarity score threshold (default: 0.3). Results below this are dropped.' },
       category: { type: 'string', description: 'Filter results to a specific category (belief, pattern, entity, topic, value, project, insight, observation)' },
+      lexical: { type: 'boolean', description: 'Merge full-text keyword matches into the candidate set for exact-term recall (default: true)' },
     },
     required: ['text'],
   },
@@ -36,6 +38,7 @@ export const queryTool: ToolDefinition = {
     const useHyde = optBool(args, 'hyde', true);
     const minScore = optNum(args, 'min_score', 0.3);
     const categoryFilter = optStr(args, 'category');
+    const useLexical = optBool(args, 'lexical', true);
 
     const store: CortexStore = ctx.namespaces.getStore(namespace);
 
@@ -50,6 +53,30 @@ export const queryTool: ToolDefinition = {
     // Find nearest memories (fetch extra to allow for filtering)
     const fetchLimit = Math.max(limit * 3, 15);
     const nearest = await store.findNearest(queryEmbedding, fetchLimit);
+
+    // Hybrid recall: merge lexical (FTS/BM25) hits the vector search missed —
+    // exact IDs, proper nouns, rare terms. Lexical-only candidates are
+    // re-scored by cosine so downstream ranking stays uniform; memories
+    // without a usable embedding keep their lexical score.
+    let lexicalAdded = 0;
+    if (useLexical) {
+      try {
+        const lexicalHits = await store.searchText(text, fetchLimit);
+        const seen = new Set(nearest.map((r) => r.memory.id));
+        for (const hit of lexicalHits) {
+          if (seen.has(hit.memory.id)) continue;
+          const memory = await store.getMemory(hit.memory.id);
+          if (!memory) continue;
+          const score = memory.embedding.length === queryEmbedding.length
+            ? cosineSimilarity(queryEmbedding, memory.embedding)
+            : hit.score;
+          nearest.push({ memory: hit.memory, score, distance: 1 - score });
+          lexicalAdded++;
+        }
+      } catch {
+        // Lexical recall is best-effort — semantic results still stand.
+      }
+    }
 
     // Spread activation for richer results — pass query embedding for query-conditioned BFS
     const activated = await spreadActivation(store, nearest, queryEmbedding);
@@ -112,6 +139,8 @@ export const queryTool: ToolDefinition = {
     return {
       query: text,
       hyde_used: useHyde,
+      lexical_used: useLexical,
+      lexical_added: lexicalAdded,
       namespace: resolvedNs,
       count: filtered.length,
       results: filtered,

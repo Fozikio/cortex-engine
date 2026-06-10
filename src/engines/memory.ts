@@ -127,7 +127,7 @@ export async function hydeExpand(
  * Compute cosine similarity between two equal-length vectors.
  * Returns 0 if either vector is zero-length.
  */
-function cosineSimilarity(a: number[], b: number[]): number {
+export function cosineSimilarity(a: number[], b: number[]): number {
   let dot = 0, normA = 0, normB = 0;
   for (let i = 0; i < a.length; i++) {
     dot += a[i] * b[i];

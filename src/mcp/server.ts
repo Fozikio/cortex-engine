@@ -142,11 +142,19 @@ export async function createContext(config: CortexConfig): Promise<EngineContext
     }
   }
 
-  // 7c. Flush pending observations to memory on shutdown
-  const consolidatorFlush = () => { consolidator.flush().catch(() => {}); };
-  process.once('SIGTERM', consolidatorFlush);
-  process.once('SIGINT', consolidatorFlush);
-  process.once('beforeExit', consolidatorFlush);
+  // 7c. Flush pending observations to memory on shutdown.
+  // SIGTERM/SIGINT: flush then explicitly exit so the process doesn't
+  // terminate before the async flush completes (signal handlers return
+  // immediately; the pending promise alone is not enough to keep the
+  // process alive once stdio closes).
+  const consolidatorFlushAndExit = () => {
+    consolidator.flush().catch(() => {}).finally(() => process.exit(0));
+  };
+  process.once('SIGTERM', consolidatorFlushAndExit);
+  process.once('SIGINT', consolidatorFlushAndExit);
+  // beforeExit fires when the event loop is empty — the flush promise
+  // keeps it alive until complete, so no explicit exit call is needed.
+  process.once('beforeExit', () => { consolidator.flush().catch(() => {}); });
 
   // 8. Filter active tools by namespace config + core set
   const activeToolNames = namespaces.getActiveTools();

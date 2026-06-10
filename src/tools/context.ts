@@ -66,7 +66,6 @@ export const contextTool: ToolDefinition = {
     if (tier === 'L0') {
       const rawEmbedding = await ctx.embed.embed(text);
       const candidates = await store.findNearest(rawEmbedding, 20);
-      const now = new Date();
 
       const scored = candidates.map((r) => {
         const daysSince = r.memory.fsrs.last_review
@@ -80,7 +79,6 @@ export const contextTool: ToolDefinition = {
         .sort((a, b) => b.score - a.score)
         .slice(0, 3);
 
-      void now;
       return {
         tier: 'L0',
         namespace: resolvedNs,
@@ -103,7 +101,6 @@ export const contextTool: ToolDefinition = {
 
       const nearest = await store.findNearest(embedding, 15);
 
-      const now = new Date();
       const results = await Promise.all(
         nearest.map(async (r) => {
           const daysSince = r.memory.fsrs.last_review
@@ -124,7 +121,6 @@ export const contextTool: ToolDefinition = {
         }),
       );
 
-      void now;
       const sorted = results
         .sort((a, b) => b.compositeScore - a.compositeScore);
 

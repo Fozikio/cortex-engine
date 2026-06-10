@@ -312,4 +312,6 @@ export const CORE_TOOLS = [
   'ops_append',
   'ops_query',
   'ops_update',
+  'context',
+  'feedback',
 ] as const;

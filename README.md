@@ -84,7 +84,7 @@ npx fozikio serve   # starts MCP server
 
 Your agent now has 57 cognitive tools. The generated `.mcp.json` is version-pinned and platform-aware (Windows `cmd /c` wrapper handled automatically).
 
-See the **[Quick Start](https://github.com/Fozikio/cortex-engine/wiki/Quick-Start)** wiki page for the full 5-minute setup.
+See the **[Quick Start](docs/quick-start.md)** guide for the full 5-minute setup.
 
 ### Multi-Agent
 
@@ -94,11 +94,11 @@ npx fozikio agent add trader --description "Trading signals"
 npx fozikio agent generate-mcp   # writes .mcp.json with scoped servers
 ```
 
-Each agent gets isolated memory via namespaces. See the **[Architecture](https://github.com/Fozikio/cortex-engine/wiki/Architecture)** wiki page for details.
+Each agent gets isolated memory via namespaces. See the **[Architecture](#architecture)** section for details.
 
 ### Agent-First Setup
 
-The fastest path: open an AI agent in an empty directory and say *"set up a cortex workspace."* The agent runs `npx fozikio init`, reads the generated files, and is immediately productive. See the **[Installation](https://github.com/Fozikio/cortex-engine/wiki/Installation)** wiki page for the full guide.
+The fastest path: open an AI agent in an empty directory and say *"set up a cortex workspace."* The agent runs `npx fozikio init`, reads the generated files, and is immediately productive. See the **[Agent-First Setup](docs/agent-first-setup.md)** guide for the full walkthrough.
 
 ### Dashboard
 
@@ -227,7 +227,7 @@ The plugin system is still available for custom extensions — see [Plugin Docs]
   - [Tools reference](docs/tools-reference.md) — all 57 tools by category with when-to-use guidance (auto-generated)
   - [Multi-agent design](docs/multi-agent-design.md) — namespace isolation, bridges, federation
   - [Design specs](docs/superpowers/specs/) — design documents from the v1.2.0 audit-driven refactor
-- **[Wiki](https://github.com/Fozikio/cortex-engine/wiki)** — Installation, architecture, plugin authoring, MCP integration, deployment, FAQ
+  - [Agent-first setup](docs/agent-first-setup.md) — Workspace initialization walkthrough
 - **[Discussions](https://github.com/Fozikio/cortex-engine/discussions)** — Ask questions, share what you've built
 - **[Contributing](https://github.com/Fozikio/.github/blob/main/CONTRIBUTING.md)** — How to contribute
 - **[Project Board](https://github.com/orgs/Fozikio/projects/2)** — Roadmap and active work

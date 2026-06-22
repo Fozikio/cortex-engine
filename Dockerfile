@@ -1,4 +1,4 @@
-FROM node:20-slim AS builder
+FROM node:24-slim AS builder
 LABEL org.opencontainers.image.source=https://github.com/Fozikio/cortex-engine
 WORKDIR /app
 
@@ -15,7 +15,7 @@ COPY tsconfig.json ./
 COPY src/ ./src/
 RUN npm run build
 
-FROM node:20-slim AS runtime
+FROM node:24-slim AS runtime
 WORKDIR /app
 
 ENV NODE_ENV=production

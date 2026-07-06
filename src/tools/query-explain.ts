@@ -4,6 +4,7 @@
  */
 
 import type { ToolDefinition } from '../mcp/tools.js';
+import { QUERY_EXPLAIN_RELEVANCE } from '../engines/prompts.js';
 import { str, optNum, optStr } from './_helpers.js';
 
 export const queryExplainTool: ToolDefinition = {
@@ -36,7 +37,11 @@ export const queryExplainTool: ToolDefinition = {
     // Add LLM-generated relevance explanations
     const resultsWithWhy = await Promise.all(
       searchResults.map(async (r) => {
-        const prompt = `In one sentence, why is this memory relevant to the query: ${text}? Memory: ${r.memory.name}: ${r.memory.definition ?? ''}.`;
+        const prompt = QUERY_EXPLAIN_RELEVANCE.build({
+          query: text,
+          memoryName: r.memory.name,
+          memoryDefinition: r.memory.definition ?? '',
+        });
         const why = await ctx.llm.generate(prompt, { temperature: 0.2 });
         return {
           id: r.memory.id,

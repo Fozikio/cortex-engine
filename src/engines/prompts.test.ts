@@ -17,6 +17,8 @@ import {
   HINDSIGHT_REVIEW,
   ADJUDICATE_CONTRADICTION,
   HYDE_EXPAND,
+  RUMINATE_FREEWRITE,
+  RUMINATE_EXTRACT,
 } from './prompts.js';
 
 describe('prompt registry', () => {
@@ -37,6 +39,14 @@ describe('prompt registry', () => {
       'dream-report': 1,
       'hyde-expand': 1,
       'adjudicate-contradiction': 2,
+      'salience-score': 1,
+      'abstract-subsume': 1,
+      'query-explain-relevance': 1,
+      'reflect-topic': 1,
+      'reflect-system': 1,
+      'agent-findings-extract': 1,
+      'ruminate-freewrite': 1,
+      'ruminate-extract': 1,
     });
   });
 
@@ -72,6 +82,24 @@ describe('prompt registry', () => {
     });
     expect(adjudicate).toContain('THE_CLAIM');
     expect(adjudicate).toContain('THE_TARGET');
+
+    const freewrite = RUMINATE_FREEWRITE.build({
+      context: 'THE_CONTEXT', topicInstruction: 'THE_TOPIC',
+    });
+    expect(freewrite).toContain('THE_CONTEXT');
+    expect(freewrite).toContain('THE_TOPIC');
+
+    expect(RUMINATE_EXTRACT.build({ text: 'THE_RUMINATION' })).toContain('THE_RUMINATION');
+  });
+
+  it('is immune to String.replace $-pattern injection (unlike the old templates)', () => {
+    // The old ruminate templates used .replace('{context}', context), where a
+    // context containing "$&" or "$'" would be expanded as a replacement
+    // pattern and corrupt the prompt. build() concatenates, so content passes
+    // through verbatim.
+    const hostile = "salary is $100; pattern tokens: $& $' $` $1 {context}";
+    const built = RUMINATE_FREEWRITE.build({ context: hostile, topicInstruction: 'x' });
+    expect(built).toContain(hostile);
   });
 
   it('keeps the /no_think prefix on HyDE for thinking models', () => {

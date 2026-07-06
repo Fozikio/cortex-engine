@@ -207,6 +207,91 @@ export const ADJUDICATE_CONTRADICTION = definePrompt<{
   `{"verdict": "genuine|supersedes|tension|complementary|unrelated", "confidence": <0.0-1.0>, "reasoning": "one sentence"}`,
 );
 
+// ─── Ingestion & reflection ───────────────────────────────────────────────────
+
+/** observe() — 4-channel salience auto-scoring when the caller omits salience. */
+export const SALIENCE_SCORE = definePrompt<{ text: string }>(
+  'salience-score', 1, (p) =>
+    `Rate the importance of this observation on a scale of 0.0 to 1.0. Consider novelty, emotional arousal, reward relevance, and attention-worthiness. Return {"composite": <number>}.\n\nObservation: ${p.text}`,
+);
+
+/** abstract() — subsume explicitly-selected concepts under one abstraction. */
+export const ABSTRACT_SUBSUME = definePrompt<{
+  conceptCount: number;
+  formattedConcepts: string;
+}>('abstract-subsume', 1, (p) =>
+  `You are finding a higher-level concept that subsumes these ${p.conceptCount} specific concepts.\n\n` +
+  `Concepts:\n${p.formattedConcepts}\n\n` +
+  `Propose ONE abstract concept (name and definition) that meaningfully generalizes or unifies them. Respond with JSON: {"name": "<short name>", "definition": "<2-3 sentence definition>"}`,
+);
+
+/** query-explain() — one-sentence relevance rationale for a search hit. */
+export const QUERY_EXPLAIN_RELEVANCE = definePrompt<{
+  query: string;
+  memoryName: string;
+  memoryDefinition: string;
+}>('query-explain-relevance', 1, (p) =>
+  `In one sentence, why is this memory relevant to the query: ${p.query}? Memory: ${p.memoryName}: ${p.memoryDefinition}.`,
+);
+
+/** reflect() — synthesize related memories into a topical reflection. */
+export const REFLECT_TOPIC = definePrompt<{
+  topic: string;
+  memoryContext: string;
+}>('reflect-topic', 1, (p) =>
+  `You are reflecting on the topic: "${p.topic}"\n\n` +
+  `Related concepts from memory:\n${p.memoryContext || '(no related memories found)'}\n\n` +
+  `Write a 2-4 sentence reflection that synthesizes these concepts and your understanding of the topic. Be honest about uncertainty.`,
+);
+
+/** System prompt paired with REFLECT_TOPIC. */
+export const REFLECT_SYSTEM = definePrompt<Record<string, never>>(
+  'reflect-system', 1, () =>
+    'You are a reflective cognitive agent. You are reflecting on your own memories and experiences. Generate thoughtful, grounded reflections in first person based on the provided memory context. Do not confuse yourself with other people mentioned in the memories.',
+);
+
+/** agent-invoke() — extract storable findings from a sub-agent's output. */
+export const AGENT_FINDINGS_EXTRACT = definePrompt<{ text: string }>(
+  'agent-findings-extract', 1, (p) =>
+    `Extract 1-5 key factual findings from this text. ` +
+    `Return a JSON array of objects with "name" (short title, max 80 chars) ` +
+    `and "finding" (1-2 sentence summary) fields. ` +
+    `Only include genuinely new or important information.\n\n${p.text}`,
+);
+
+// ─── Rumination ───────────────────────────────────────────────────────────────
+
+/**
+ * Free-writing pass over accumulated context — dream() for identity.
+ * High temperature by design; the value is in what emerges.
+ */
+export const RUMINATE_FREEWRITE = definePrompt<{
+  context: string;
+  topicInstruction: string;
+}>('ruminate-freewrite', 1, (p) =>
+  `You are an AI agent reflecting on your own accumulated context. People mentioned in the context (like "Virgil") are other people, not you. This is a rumination — not a task response, not a summary, not a report. Think freely.\n\n` +
+  `Here is what you know right now:\n\n` +
+  `${p.context}\n\n` +
+  `${p.topicInstruction}\n\n` +
+  `Write 3-5 paragraphs of genuine reflection. What patterns do you see? What surprised you? What do you actually think about what's happening? What questions opened that you didn't expect? What would you want your future self to know?\n\n` +
+  `Don't summarize. Think. The value is in what emerges, not in being comprehensive.`,
+);
+
+/** Extract beliefs/speculations/questions/identity insights from a rumination. */
+export const RUMINATE_EXTRACT = definePrompt<{ text: string }>(
+  'ruminate-extract', 1, (p) =>
+    `Read this rumination output from an AI agent reflecting on its own state:\n\n` +
+    `---\n${p.text}\n---\n\n` +
+    `Extract any genuine insights. For each, classify as:\n` +
+    `- BELIEF: A position the agent holds (could change with evidence)\n` +
+    `- SPECULATION: A hypothesis worth testing\n` +
+    `- QUESTION: An open question worth tracking\n` +
+    `- IDENTITY: Something about who the agent is becoming\n\n` +
+    `Output as JSON array:\n` +
+    `[{"type": "BELIEF"|"SPECULATION"|"QUESTION"|"IDENTITY", "text": "...", "salience": 0.0-1.0}]\n\n` +
+    `Only include items that represent genuine thinking — not restatements of the input. If nothing genuine emerged, return [].`,
+);
+
 // ─── Registry ─────────────────────────────────────────────────────────────────
 
 /** All registered prompts, for introspection, docs, and version tests. */
@@ -221,6 +306,14 @@ export const PROMPT_REGISTRY = [
   DREAM_REPORT,
   HYDE_EXPAND,
   ADJUDICATE_CONTRADICTION,
+  SALIENCE_SCORE,
+  ABSTRACT_SUBSUME,
+  QUERY_EXPLAIN_RELEVANCE,
+  REFLECT_TOPIC,
+  REFLECT_SYSTEM,
+  AGENT_FINDINGS_EXTRACT,
+  RUMINATE_FREEWRITE,
+  RUMINATE_EXTRACT,
 ] as const;
 
 /** id → version map, used by tests and telemetry. */

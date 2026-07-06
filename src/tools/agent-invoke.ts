@@ -15,6 +15,7 @@
 import type { ToolDefinition, ToolContext } from '../mcp/tools.js';
 import type { Memory, SearchResult } from '../core/types.js';
 import { extractKeywords } from '../engines/keywords.js';
+import { AGENT_FINDINGS_EXTRACT } from '../engines/prompts.js';
 
 // ─── Tool Schema ─────────────────────────────────────────────────────────────
 
@@ -138,11 +139,7 @@ export const agentInvokeTool: ToolDefinition = {
 
     if (storeResults && result.length > 50) {
       // Extract key findings and store as observations
-      const extractPrompt =
-        `Extract 1-5 key factual findings from this text. ` +
-        `Return a JSON array of objects with "name" (short title, max 80 chars) ` +
-        `and "finding" (1-2 sentence summary) fields. ` +
-        `Only include genuinely new or important information.\n\n${result}`;
+      const extractPrompt = AGENT_FINDINGS_EXTRACT.build({ text: result });
 
       try {
         const findings = await ctx.llm.generateJSON<Array<{ name: string; finding: string }>>(

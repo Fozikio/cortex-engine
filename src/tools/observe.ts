@@ -11,6 +11,7 @@ import type { CortexStore } from '../core/store.js';
 import { predictionErrorGate } from '../engines/memory.js';
 import { extractKeywords } from '../engines/keywords.js';
 import { adjudicateContradiction, MAX_CONFIDENCE_PENALTY } from '../engines/adjudicate.js';
+import { SALIENCE_SCORE } from '../engines/prompts.js';
 import { str, optStr, optBool, fireTriggers, fireBridges } from './_helpers.js';
 
 export const observeTool: ToolDefinition = {
@@ -50,7 +51,7 @@ export const observeTool: ToolDefinition = {
     } else {
       try {
         const scoreResult = await ctx.llm.generateJSON<{ composite: number }>(
-          `Rate the importance of this observation on a scale of 0.0 to 1.0. Consider novelty, emotional arousal, reward relevance, and attention-worthiness. Return {"composite": <number>}.\n\nObservation: ${text}`,
+          SALIENCE_SCORE.build({ text }),
           { temperature: 0.1, schema: { type: 'object', properties: { composite: { type: 'number' } }, required: ['composite'] } },
         );
         salience = scoreResult.composite ?? 0.5;

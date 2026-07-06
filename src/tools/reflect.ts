@@ -5,6 +5,7 @@
 import type { ToolDefinition, ToolContext } from '../mcp/tools.js';
 import { str, optStr } from './_helpers.js';
 import { extractKeywords } from '../engines/keywords.js';
+import { REFLECT_TOPIC, REFLECT_SYSTEM } from '../engines/prompts.js';
 
 export const reflectTool: ToolDefinition = {
   name: 'reflect',
@@ -37,11 +38,11 @@ export const reflectTool: ToolDefinition = {
 
     // LLM generates reflection
     const reflection = await ctx.llm.generate(
-      `You are reflecting on the topic: "${topic}"\n\nRelated concepts from memory:\n${memoryContext || '(no related memories found)'}\n\nWrite a 2-4 sentence reflection that synthesizes these concepts and your understanding of the topic. Be honest about uncertainty.`,
+      REFLECT_TOPIC.build({ topic, memoryContext }),
       {
         temperature: 0.7,
         maxTokens: 300,
-        systemPrompt: 'You are a reflective cognitive agent. You are reflecting on your own memories and experiences. Generate thoughtful, grounded reflections in first person based on the provided memory context. Do not confuse yourself with other people mentioned in the memories.',
+        systemPrompt: REFLECT_SYSTEM.build({}),
       },
     );
 

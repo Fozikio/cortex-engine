@@ -4,6 +4,7 @@
  */
 
 import type { ToolDefinition } from '../mcp/tools.js';
+import { ABSTRACT_SUBSUME } from '../engines/prompts.js';
 import { optStr } from './_helpers.js';
 
 const MEMORIES_COLLECTION = 'memories';
@@ -57,7 +58,10 @@ export const abstractTool: ToolDefinition = {
       .map((m, i) => `[${i + 1}] "${m.name}": ${m.definition}`)
       .join('\n\n');
 
-    const prompt = `You are finding a higher-level concept that subsumes these ${memories.length} specific concepts.\n\nConcepts:\n${formatted}\n\nPropose ONE abstract concept (name and definition) that meaningfully generalizes or unifies them. Respond with JSON: {"name": "<short name>", "definition": "<2-3 sentence definition>"}`;
+    const prompt = ABSTRACT_SUBSUME.build({
+      conceptCount: memories.length,
+      formattedConcepts: formatted,
+    });
 
     const parsed = await ctx.llm.generateJSON<{ name: string; definition: string }>(prompt, {
       temperature: 0.3,

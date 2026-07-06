@@ -2,6 +2,13 @@
 
 Portable cognitive engine for AI agents. Published as `@fozikio/cortex-engine` on npm.
 
+## Workflow tier: Production
+
+Conventional commits with scopes and explanatory bodies, PR-required (no direct
+pushes to master), CI as a hard merge gate, Keep-a-Changelog CHANGELOG.md with
+semver tags. New clones: run `git config core.hooksPath .githooks` once to
+activate the commit-msg lint hook.
+
 ## Commands
 
 ```bash

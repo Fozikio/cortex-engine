@@ -1,0 +1,20 @@
+#!/bin/sh
+# Warns (never blocks) if a commit message's first line isn't a
+# conventional commit. This script is committed to `.githooks/` so it
+# travels with the repo, but the `core.hooksPath .githooks` setting that
+# activates it lives in local, per-clone .git/config and is NOT itself
+# committed — a fresh clone must run `git config core.hooksPath .githooks`
+# once before this hook fires. Only present at Standard/Production tier.
+
+MSG_FILE="$1"
+FIRST_LINE=$(head -n1 "$MSG_FILE")
+PATTERN='^(feat|fix|chore|docs|refactor|test|ci|build|perf|security|style|revert)(\([a-zA-Z0-9_.-]+\))?: .+'
+
+if ! printf '%s' "$FIRST_LINE" | grep -Eq "$PATTERN"; then
+  echo "warning: commit message doesn't look like a conventional commit" >&2
+  echo "  expected: type(scope): summary   e.g. fix(auth): handle expired tokens" >&2
+  echo "  types: feat fix chore docs refactor test ci build perf security style revert" >&2
+  echo "  got:      $FIRST_LINE" >&2
+fi
+
+exit 0

@@ -2,11 +2,11 @@
 
 Auto-generated from `src/mcp/tools.ts`. Do not edit by hand — run `npm run docs:tools`.
 
-Total tools: 57. Categories: 13.
+Total tools: 59. Categories: 13.
 
 ## Index
 
-- [Memory](#memory) (9)
+- [Memory](#memory) (11)
 - [Consolidation](#consolidation) (5)
 - [Beliefs](#beliefs) (4)
 - [Ops Log](#ops-log) (3)
@@ -21,6 +21,21 @@ Total tools: 57. Categories: 13.
 - [Meta & Signals](#meta-signals) (8)
 
 ## Memory
+
+### `context`
+
+Tiered memory loader: L0 (top-3 names, ~100 tokens, instant), L1 (semantic top-15 + graph edges, ~2k tokens), L2 (multi-anchor full recall, max richness). Use L0 for system-prompt injection, L1 for mid-conversation refresh, L2 for deep research.
+
+**Use when:** You need to prefetch relevant memory before a response and want to control the token budget explicitly.
+
+**Don't use when:** You want ranked search with HyDE + spread activation for a specific question — use query instead.
+
+**Arguments:**
+
+  - `text` `string` *(required)* — Topic or question to retrieve context for
+  - `tier` `string` — L0 = fast summary (~100 tokens), L1 = working memory (~2k tokens), L2 = full deep recall (default: L1)
+  - `namespace` `string` — Memory namespace (defaults to default)
+  - `hyde` `boolean` — Use HyDE query expansion (default: true; ignored for L0)
 
 ### `federated_query`
 
@@ -37,6 +52,21 @@ Returns memories aggregated from peer cortex instances discovered via the sigil 
   - `namespace` `string` — Caller's namespace (for context).
   - `limit` `number` — Max results per peer (default: 3).
   - `min_score` `number` — Minimum similarity score threshold (default: 0.4).
+
+### `feedback`
+
+Records whether a retrieved memory was actually helpful, adjusting its confidence asymmetrically (+0.05 helpful / -0.10 unhelpful) and logging the event for retrieval audits.
+
+**Use when:** You just acted on a retrieved memory and know whether it was accurate and useful — close the loop so future ranking improves.
+
+**Don't use when:** You want to correct a memory definition (use believe) or remove it entirely (use forget).
+
+**Arguments:**
+
+  - `id` `string` *(required)* — Memory id the feedback applies to
+  - `helpful` `boolean` *(required)* — true if the memory was accurate and useful, false if wrong, stale, or misleading
+  - `note` `string` — Optional context — what made it helpful or unhelpful
+  - `namespace` `string` — Memory namespace (defaults to default)
 
 ### `neighbors`
 
@@ -67,6 +97,7 @@ Records a declarative observation — duplicates merge into existing memories; h
   - `salience` `number` — Importance score 0.0-1.0 (omit to auto-score via LLM)
   - `source_file` `string` — Source file path for provenance
   - `source_section` `string` — Source section or heading for provenance
+  - `check_conflict` `boolean` — Check whether this observation contradicts the nearest existing memory (default: true; only runs when an NLI provider is configured)
 
 ### `query`
 
@@ -84,6 +115,7 @@ Returns memories ranked by semantic similarity to a question, with HyDE expansio
   - `hyde` `boolean` — Expand query for better conceptual matches (default: true)
   - `min_score` `number` — Minimum similarity score threshold (default: 0.3). Results below this are dropped.
   - `category` `string` — Filter results to a specific category (belief, pattern, entity, topic, value, project, insight, observation)
+  - `lexical` `boolean` — Merge full-text keyword matches into the candidate set for exact-term recall (default: true)
 
 ### `query_cross`
 
@@ -143,7 +175,7 @@ Records a hypothesis as a speculative observation, flagged so it is excluded fro
 
   - `text` `string` *(required)* — The hypothesis (e.g. "Switching to sessions might reduce token overhead")
   - `namespace` `string` — Target namespace (defaults to default)
-  - `salience` `number` — Importance score 1-10 (default: 5)
+  - `salience` `number` — Importance score 0.0-1.0 (default: 0.5)
   - `basis` `string` — What evidence or reasoning supports this hypothesis
 
 ### `wonder`
@@ -158,7 +190,7 @@ Records an open question as an interrogative observation, kept separate from fac
 
   - `text` `string` *(required)* — The question or curiosity (e.g. "Why does the sync daemon stall after 300k seconds?")
   - `namespace` `string` — Target namespace (defaults to default)
-  - `salience` `number` — Importance score 1-10 (default: 5)
+  - `salience` `number` — Importance score 0.0-1.0 (default: 0.5)
   - `context` `string` — What prompted this question
 
 ## Consolidation
@@ -261,13 +293,14 @@ Records a belief revision on an existing memory — logs the previous definition
   - `concept_id` `string` *(required)* — ID of the memory/concept being revised
   - `new_definition` `string` *(required)* — The updated definition or belief
   - `reason` `string` *(required)* — Why this belief is changing
+  - `valid_from` `string` — ISO date when the revised belief became true in the world (valid time) — e.g. "2026-06-01" when recording in July that the user moved in June. Omit if unknown.
   - `namespace` `string` — Namespace (defaults to default namespace)
 
 ### `contradict`
 
-Creates a CONTRADICTION signal linking an observation to a belief or memory it disputes. Returns the new signal id.
+Adjudicates whether an observation genuinely contradicts a belief or memory (NLI/LLM), then records a CONTRADICTION or TENSION signal — genuine contradictions also reduce the memory's confidence. Returns the verdict and signal id.
 
-**Use when:** You notice fresh evidence that disagrees with stored belief or memory and want it surfaced for later resolution.
+**Use when:** You notice fresh evidence that disagrees with stored belief or memory and want it verified and surfaced for later resolution.
 
 **Don't use when:** You want to update the belief itself (use believe) or close out a known contradiction (use resolve).
 
@@ -277,6 +310,7 @@ Creates a CONTRADICTION signal linking an observation to a belief or memory it d
   - `belief_id` `string` — Belief document ID (concept_id will be used)
   - `memory_id` `string` — Memory document ID
   - `note` `string` — Optional note about the contradiction
+  - `force` `boolean` — Skip adjudication and record the contradiction as-is (default: false)
   - `namespace` `string` — Namespace (defaults to default)
 
 ### `validate`
@@ -753,9 +787,9 @@ Returns the last dream summary, quality trend across the last 7 dreams, and curr
 
 ### `find_duplicates`
 
-Returns pairs of near-duplicate memories above a similarity threshold. With merge=true, auto-merges them keeping the higher-salience entry.
+Returns pairs of near-duplicate memories above a similarity threshold by scanning the N most-recently-updated memories. With merge=true, auto-merges pairs keeping the higher-salience entry. Defaults scan_limit=30, max_candidates=10 — increase both for full-graph audits or when concept clusters may have more than ~9 copies.
 
-**Use when:** You suspect duplicate memories have piled up and want to audit or clean them.
+**Use when:** You suspect duplicate memories have piled up and want to audit or clean them. For a full-graph sweep, set scan_limit to the total memory count.
 
 **Don't use when:** You want to fade one specific concept — use forget. You want to revise it — use believe.
 
@@ -763,6 +797,8 @@ Returns pairs of near-duplicate memories above a similarity threshold. With merg
 
   - `merge` `boolean` — Auto-merge detected duplicates (default: false — report only)
   - `threshold` `number` — Similarity threshold 0-1 (default: 0.85)
+  - `scan_limit` `number` — How many of the most-recently-updated memories to scan (default: 30, max: 500). Older memories not in the scan window won't appear as the "a" side of a pair, though they can appear as candidates.
+  - `max_candidates` `number` — How many nearest-neighbor candidates to fetch per scanned memory (default: 10, max: 50). Must be at least the size of any expected duplicate cluster — if 5 copies of a concept exist, max_candidates < 5 will silently drop pairs.
   - `namespace` `string` — Namespace (defaults to default)
 
 ### `forget`

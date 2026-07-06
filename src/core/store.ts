@@ -13,6 +13,7 @@ import type {
   OpsEntry,
   OpsFilters,
   Signal,
+  SignalFilters,
   BeliefEntry,
   SearchResult,
   QueryFilter,
@@ -110,6 +111,19 @@ export interface CortexStore {
 
   /** Store a signal, returns its ID. */
   putSignal(signal: Omit<Signal, 'id'>): Promise<string>;
+
+  /** Get a signal by ID. Returns null if not found. */
+  getSignal(id: string): Promise<Signal | null>;
+
+  /**
+   * List signals, ordered by priority desc then created_at desc.
+   * SQLite/JSON also surface legacy signals written through the generic
+   * collection API before signals had first-class reads.
+   */
+  getSignals(filters?: SignalFilters): Promise<Signal[]>;
+
+  /** Update signal fields (resolution, priority). Throws if the signal does not exist. */
+  updateSignal(id: string, updates: Partial<Omit<Signal, 'id'>>): Promise<void>;
 
   // ─── Belief ──────────────────────────────────────────────────────────────────
 

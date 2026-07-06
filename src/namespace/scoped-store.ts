@@ -16,6 +16,7 @@ import type {
   OpsEntry,
   OpsFilters,
   Signal,
+  SignalFilters,
   BeliefEntry,
   SearchResult,
   FSRSData,
@@ -108,6 +109,18 @@ export class ScopedStore implements CortexStore {
 
   putSignal(signal: Omit<Signal, 'id'>): Promise<string> {
     return this.inner.putSignal(signal);
+  }
+
+  getSignal(id: string): Promise<Signal | null> {
+    return this.inner.getSignal(id);
+  }
+
+  getSignals(filters?: SignalFilters): Promise<Signal[]> {
+    return this.inner.getSignals(filters);
+  }
+
+  updateSignal(id: string, updates: Partial<Omit<Signal, 'id'>>): Promise<void> {
+    return this.inner.updateSignal(id, updates);
   }
 
   // ─── Belief ───────────────────────────────────────────────────────────────

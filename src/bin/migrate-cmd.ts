@@ -530,6 +530,8 @@ function rowToSignal(r: Record<string, unknown>): Signal {
     resolved: r.resolved === 1 || r.resolved === true,
     created_at: toDate(r.created_at),
     resolution_note: r.resolution_note == null ? null : String(r.resolution_note),
+    resolved_at: r.resolved_at == null ? null : toDate(r.resolved_at),
+    observation_id: r.observation_id == null ? undefined : String(r.observation_id),
   };
 }
 
@@ -541,6 +543,8 @@ function rowToBelief(r: Record<string, unknown>): BeliefEntry {
     new_definition: String(r.new_definition ?? ''),
     reason: String(r.reason ?? ''),
     changed_at: toDate(r.changed_at),
+    valid_from: r.valid_from == null ? null : toDate(r.valid_from),
+    valid_to: r.valid_to == null ? null : toDate(r.valid_to),
   };
 }
 

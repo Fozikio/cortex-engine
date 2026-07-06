@@ -126,6 +126,12 @@ describe('SqliteCortexStore.searchText (FTS5)', () => {
       const store2 = new SqliteCortexStore(dbPath);
       const results = await store2.searchText('giraffe', 5);
       expect(results).toHaveLength(1);
+
+      // Close handles before rmSync — Windows cannot unlink an open DB file.
+      const getDb = (s: SqliteCortexStore) =>
+        (s as unknown as { db: { close(): void } }).db;
+      getDb(store1).close();
+      getDb(store2).close();
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

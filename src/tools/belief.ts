@@ -41,6 +41,8 @@ export const beliefTool: ToolDefinition = {
       old_definition: entry.old_definition,
       new_definition: entry.new_definition,
       reason: entry.reason,
+      valid_from: entry.valid_from?.toISOString() ?? null,
+      valid_to: entry.valid_to?.toISOString() ?? null,
     }));
 
     return {

@@ -21,7 +21,7 @@ export type {
   ModelProvenanceConfig,
   BenchmarkConfig,
 } from './core/config.js';
-export { DEFAULT_CONFIG } from './core/config.js';
+export { DEFAULT_CONFIG, resolveModelTier } from './core/config.js';
 
 // Session & provenance
 export { Session } from './core/session.js';
@@ -45,6 +45,7 @@ export type {
   OpsHandoffMeta,
   OpsFilters,
   Signal,
+  SignalFilters,
   SignalType,
   BeliefEntry,
   SearchResult,
@@ -101,6 +102,15 @@ export type { PESaturationResult } from './engines/graph-metrics.js';
 
 export { digestDocument } from './engines/digest.js';
 export type { DigestOptions, DigestResult } from './engines/digest.js';
+
+export { adjudicateContradiction } from './engines/adjudicate.js';
+export type { AdjudicationResult, AdjudicateOptions, ContradictionVerdict } from './engines/adjudicate.js';
+
+export { assessThought, groundingScore, GENERIC_PHRASE_MARKERS } from './engines/thought-quality.js';
+export type { ThoughtQualityOptions, ThoughtQualityResult } from './engines/thought-quality.js';
+
+export { PROMPT_REGISTRY, promptVersions } from './engines/prompts.js';
+export type { PromptTemplate } from './engines/prompts.js';
 
 // Stores
 export { SqliteCortexStore } from './stores/sqlite.js';

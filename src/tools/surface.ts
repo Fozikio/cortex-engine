@@ -5,8 +5,6 @@
 import type { ToolDefinition } from '../mcp/tools.js';
 import { optNum, optStr } from './_helpers.js';
 
-const SIGNALS_COLLECTION = 'signals';
-
 export const surfaceTool: ToolDefinition = {
   name: 'surface',
   category: 'meta',
@@ -26,19 +24,15 @@ export const surfaceTool: ToolDefinition = {
     const namespace = optStr(args, 'namespace');
     const store = ctx.namespaces.getStore(namespace);
 
-    const results = await store.query(
-      SIGNALS_COLLECTION,
-      [{ field: 'resolved', op: '==', value: false }],
-      { limit, orderBy: 'priority', orderDir: 'desc' },
-    );
+    const results = await store.getSignals({ resolved: false, limit });
 
-    const signals = results.map((doc) => ({
-      id: typeof doc['id'] === 'string' ? doc['id'] : '',
-      type: typeof doc['type'] === 'string' ? doc['type'] : '',
-      description: typeof doc['description'] === 'string' ? doc['description'] : '',
-      concept_ids: Array.isArray(doc['concept_ids']) ? doc['concept_ids'] : [],
-      priority: typeof doc['priority'] === 'number' ? doc['priority'] : 0,
-      created_at: typeof doc['created_at'] === 'string' ? doc['created_at'] : '',
+    const signals = results.map((signal) => ({
+      id: signal.id,
+      type: signal.type,
+      description: signal.description,
+      concept_ids: signal.concept_ids,
+      priority: signal.priority,
+      created_at: signal.created_at.toISOString(),
     }));
 
     return { unresolved_count: signals.length, signals };

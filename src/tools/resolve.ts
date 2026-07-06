@@ -5,8 +5,6 @@
 import type { ToolDefinition } from '../mcp/tools.js';
 import { str, optStr } from './_helpers.js';
 
-const SIGNALS_COLLECTION = 'signals';
-
 export const resolveTool: ToolDefinition = {
   name: 'resolve',
   category: 'meta',
@@ -30,16 +28,15 @@ export const resolveTool: ToolDefinition = {
 
     const store = ctx.namespaces.getStore(namespace);
 
-    const doc = await store.get(SIGNALS_COLLECTION, signalId);
-    if (!doc) {
+    const signal = await store.getSignal(signalId);
+    if (!signal) {
       return { error: `Signal ${signalId} not found` };
     }
 
-    const now = new Date().toISOString();
-    await store.update(SIGNALS_COLLECTION, signalId, {
+    await store.updateSignal(signalId, {
       resolved: true,
       resolution_note: note,
-      resolved_at: now,
+      resolved_at: new Date(),
     });
 
     return { action: 'resolved', signal_id: signalId, note };

@@ -13,8 +13,8 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "serve": "node dist/bin/serve.js",
-    "test": "node --experimental-vm-modules node_modules/.bin/vitest run",
-    "test:watch": "node --experimental-vm-modules node_modules/.bin/vitest",
+    "test": "node --experimental-vm-modules node_modules/vitest/vitest.mjs run",
+    "test:watch": "node --experimental-vm-modules node_modules/vitest/vitest.mjs",
     "docs:tools": "node dist/bin/generate-tools-doc.js"
   },
   "engines": {

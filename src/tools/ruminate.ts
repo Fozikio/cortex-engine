@@ -12,36 +12,8 @@
 import type { ToolDefinition } from '../mcp/tools.js';
 import type { CortexStore } from '../core/store.js';
 import { extractKeywords } from '../engines/keywords.js';
+import { RUMINATE_FREEWRITE, RUMINATE_EXTRACT } from '../engines/prompts.js';
 import { optStr, optNum, optBool } from './_helpers.js';
-
-const RUMINATE_PROMPT = `You are an AI agent reflecting on your own accumulated context. People mentioned in the context (like "Virgil") are other people, not you. This is a rumination — not a task response, not a summary, not a report. Think freely.
-
-Here is what you know right now:
-
-{context}
-
-{topic_instruction}
-
-Write 3-5 paragraphs of genuine reflection. What patterns do you see? What surprised you? What do you actually think about what's happening? What questions opened that you didn't expect? What would you want your future self to know?
-
-Don't summarize. Think. The value is in what emerges, not in being comprehensive.`;
-
-const EXTRACT_PROMPT = `Read this rumination output from an AI agent reflecting on its own state:
-
----
-{text}
----
-
-Extract any genuine insights. For each, classify as:
-- BELIEF: A position the agent holds (could change with evidence)
-- SPECULATION: A hypothesis worth testing
-- QUESTION: An open question worth tracking
-- IDENTITY: Something about who the agent is becoming
-
-Output as JSON array:
-[{"type": "BELIEF"|"SPECULATION"|"QUESTION"|"IDENTITY", "text": "...", "salience": 0.0-1.0}]
-
-Only include items that represent genuine thinking — not restatements of the input. If nothing genuine emerged, return [].`;
 
 export const ruminateTool: ToolDefinition = {
   name: 'ruminate',
@@ -89,9 +61,7 @@ export const ruminateTool: ToolDefinition = {
       ? `Focus your reflection around: ${topic}`
       : 'Let your attention go wherever it naturally goes.';
 
-    const prompt = RUMINATE_PROMPT
-      .replace('{context}', context)
-      .replace('{topic_instruction}', topicInstruction);
+    const prompt = RUMINATE_FREEWRITE.build({ context, topicInstruction });
 
     const rumination = await ctx.llm.generate(prompt, { temperature: 0.9 });
 
@@ -123,7 +93,7 @@ export const ruminateTool: ToolDefinition = {
     // Phase 3: Extract and store insights
     if (shouldExtract) {
       try {
-        const extractPrompt = EXTRACT_PROMPT.replace('{text}', rumination);
+        const extractPrompt = RUMINATE_EXTRACT.build({ text: rumination });
         const extractionRaw = await ctx.llm.generate(extractPrompt, { temperature: 0.2 });
 
         // Parse JSON from the response

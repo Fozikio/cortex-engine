@@ -23,6 +23,7 @@ import type {
   OpsEntry,
   OpsFilters,
   Signal,
+  SignalFilters,
   BeliefEntry,
   SearchResult,
   FSRSData,
@@ -202,6 +203,27 @@ function docToBelief(id: string, data: DocumentData): BeliefEntry {
     new_definition: data.new_definition ?? '',
     reason: data.reason ?? '',
     changed_at: toDate(data.changed_at),
+    valid_from: toDateOrNull(data.valid_from),
+    valid_to: toDateOrNull(data.valid_to),
+  };
+}
+
+/**
+ * Tolerates both putSignal docs (Timestamp dates) and docs written through
+ * the generic collection API before signals had first-class reads (ISO strings).
+ */
+function docToSignal(id: string, data: DocumentData): Signal {
+  return {
+    id,
+    type: data.type,
+    description: data.description ?? '',
+    concept_ids: data.concept_ids ?? [],
+    priority: typeof data.priority === 'number' ? data.priority : 0.5,
+    resolved: data.resolved === true,
+    created_at: toDate(data.created_at),
+    resolution_note: data.resolution_note ?? null,
+    resolved_at: toDateOrNull(data.resolved_at),
+    observation_id: typeof data.observation_id === 'string' ? data.observation_id : undefined,
   };
 }
 
@@ -552,8 +574,50 @@ export class FirestoreCortexStore implements CortexStore {
       resolved: signal.resolved,
       created_at: toTimestamp(signal.created_at),
       resolution_note: signal.resolution_note ?? null,
+      resolved_at: signal.resolved_at ? toTimestamp(signal.resolved_at) : null,
+      observation_id: signal.observation_id ?? null,
     });
     return ref.id;
+  }
+
+  async getSignal(id: string): Promise<Signal | null> {
+    const snap = await this.col('signals').doc(id).get();
+    if (!snap.exists) return null;
+    return docToSignal(snap.id, snap.data() as DocumentData);
+  }
+
+  async getSignals(filters: SignalFilters = {}): Promise<Signal[]> {
+    let q: FirebaseFirestore.Query = this.col('signals');
+    if (filters.resolved !== undefined) q = q.where('resolved', '==', filters.resolved);
+    if (filters.type !== undefined) q = q.where('type', '==', filters.type);
+
+    // Sort client-side: where + orderBy on different fields would require a
+    // composite index, and signal volume is small.
+    const snap = await q.get();
+    const signals = snap.docs.map(doc => docToSignal(doc.id, doc.data()));
+    signals.sort((a, b) =>
+      b.priority - a.priority || b.created_at.getTime() - a.created_at.getTime());
+    return filters.limit !== undefined ? signals.slice(0, filters.limit) : signals;
+  }
+
+  async updateSignal(id: string, updates: Partial<Omit<Signal, 'id'>>): Promise<void> {
+    const ref = this.col('signals').doc(id);
+    const snap = await ref.get();
+    if (!snap.exists) throw new Error(`Document not found: signals/${id}`);
+
+    const data: Record<string, unknown> = {};
+    if (updates.type !== undefined) data.type = updates.type;
+    if (updates.description !== undefined) data.description = updates.description;
+    if (updates.concept_ids !== undefined) data.concept_ids = updates.concept_ids;
+    if (updates.priority !== undefined) data.priority = updates.priority;
+    if (updates.resolved !== undefined) data.resolved = updates.resolved;
+    if (updates.resolution_note !== undefined) data.resolution_note = updates.resolution_note;
+    if (updates.resolved_at !== undefined) data.resolved_at = updates.resolved_at ? toTimestamp(updates.resolved_at) : null;
+    if (updates.observation_id !== undefined) data.observation_id = updates.observation_id;
+    if (updates.created_at !== undefined) data.created_at = toTimestamp(updates.created_at);
+    if (Object.keys(data).length === 0) return;
+
+    await ref.update(data);
   }
 
   // ─── Belief ────────────────────────────────────────────────────────────────
@@ -566,6 +630,8 @@ export class FirestoreCortexStore implements CortexStore {
       new_definition: entry.new_definition,
       reason: entry.reason,
       changed_at: toTimestamp(entry.changed_at),
+      valid_from: entry.valid_from ? toTimestamp(entry.valid_from) : null,
+      valid_to: entry.valid_to ? toTimestamp(entry.valid_to) : null,
     });
     return ref.id;
   }
@@ -753,6 +819,8 @@ export class FirestoreCortexStore implements CortexStore {
       resolved: signal.resolved,
       created_at: toTimestamp(signal.created_at),
       resolution_note: signal.resolution_note ?? null,
+      resolved_at: signal.resolved_at ? toTimestamp(signal.resolved_at) : null,
+      observation_id: signal.observation_id ?? null,
     });
   }
 
@@ -763,6 +831,8 @@ export class FirestoreCortexStore implements CortexStore {
       new_definition: belief.new_definition,
       reason: belief.reason,
       changed_at: toTimestamp(belief.changed_at),
+      valid_from: belief.valid_from ? toTimestamp(belief.valid_from) : null,
+      valid_to: belief.valid_to ? toTimestamp(belief.valid_to) : null,
     });
   }
 
@@ -1013,8 +1083,38 @@ class FirestoreTxnProxy implements CortexStore {
       resolved: signal.resolved,
       created_at: toTimestamp(signal.created_at),
       resolution_note: signal.resolution_note ?? null,
+      resolved_at: signal.resolved_at ? toTimestamp(signal.resolved_at) : null,
+      observation_id: signal.observation_id ?? null,
     });
     return id;
+  }
+
+  async getSignal(id: string): Promise<Signal | null> {
+    const snap = await this.txn.get(this.col('signals').doc(id));
+    if (!snap.exists) return null;
+    return docToSignal(snap.id, snap.data() as DocumentData);
+  }
+
+  getSignals(): Promise<Signal[]> { return this.unsupported('getSignals'); }
+
+  async updateSignal(id: string, updates: Partial<Omit<Signal, 'id'>>): Promise<void> {
+    const ref = this.col('signals').doc(id);
+    const snap = await this.txn.get(ref);
+    if (!snap.exists) throw new Error(`Document not found: signals/${id}`);
+
+    const data: Record<string, unknown> = {};
+    if (updates.type !== undefined) data.type = updates.type;
+    if (updates.description !== undefined) data.description = updates.description;
+    if (updates.concept_ids !== undefined) data.concept_ids = updates.concept_ids;
+    if (updates.priority !== undefined) data.priority = updates.priority;
+    if (updates.resolved !== undefined) data.resolved = updates.resolved;
+    if (updates.resolution_note !== undefined) data.resolution_note = updates.resolution_note;
+    if (updates.resolved_at !== undefined) data.resolved_at = updates.resolved_at ? toTimestamp(updates.resolved_at) : null;
+    if (updates.observation_id !== undefined) data.observation_id = updates.observation_id;
+    if (updates.created_at !== undefined) data.created_at = toTimestamp(updates.created_at);
+    if (Object.keys(data).length === 0) return;
+
+    this.txn.update(ref, data);
   }
 
   // ─── Belief ────────────────────────────────────────────────────────────────
@@ -1027,6 +1127,8 @@ class FirestoreTxnProxy implements CortexStore {
       new_definition: entry.new_definition,
       reason: entry.reason,
       changed_at: toTimestamp(entry.changed_at),
+      valid_from: entry.valid_from ? toTimestamp(entry.valid_from) : null,
+      valid_to: entry.valid_to ? toTimestamp(entry.valid_to) : null,
     });
     return id;
   }
@@ -1154,6 +1256,8 @@ class FirestoreTxnProxy implements CortexStore {
       resolved: signal.resolved,
       created_at: toTimestamp(signal.created_at),
       resolution_note: signal.resolution_note ?? null,
+      resolved_at: signal.resolved_at ? toTimestamp(signal.resolved_at) : null,
+      observation_id: signal.observation_id ?? null,
     });
   }
 
@@ -1164,6 +1268,8 @@ class FirestoreTxnProxy implements CortexStore {
       new_definition: belief.new_definition,
       reason: belief.reason,
       changed_at: toTimestamp(belief.changed_at),
+      valid_from: belief.valid_from ? toTimestamp(belief.valid_from) : null,
+      valid_to: belief.valid_to ? toTimestamp(belief.valid_to) : null,
     });
   }
 

@@ -9,6 +9,7 @@
 import type { CortexStore } from '../core/store.js';
 import type { EmbedProvider } from '../core/embed.js';
 import type { LLMProvider } from '../core/llm.js';
+import { HYDE_EXPAND } from './prompts.js';
 import type {
   Memory,
   MemorySummary,
@@ -104,11 +105,8 @@ export async function hydeExpand(
   llm: LLMProvider,
   embed: EmbedProvider
 ): Promise<number[]> {
-  // /no_think suppresses reasoning-mode <think>...</think> output for thinking
-  // models (qwen3, phi4-reasoning). Without it, a small maxTokens budget can be
-  // entirely consumed by the thinking block, leaving an empty final answer.
   const hypothetical = await llm.generate(
-    `/no_think\nWrite a short, factual passage (2-3 sentences) that would answer this question or describe this concept. Do not include any preamble — just the passage.\n\nQuery: ${query}`,
+    HYDE_EXPAND.build({ query }),
     {
       temperature: 0.3,
       maxTokens: 200,

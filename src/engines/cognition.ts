@@ -33,6 +33,19 @@ import { scheduleNext, newFSRSState, elapsedDaysSince } from './fsrs.js';
 import { computeFiedlerValue, detectPESaturation } from './graph-metrics.js';
 import type { PESaturationResult } from './graph-metrics.js';
 import { safeStoreRead, type PhaseStats } from './_safe.js';
+import { cosineSimilarity } from './memory.js';
+import { assessThought } from './thought-quality.js';
+import {
+  REFINE_DEFINITION,
+  EDGE_REVALIDATE,
+  CLASSIFY_CATEGORY,
+  EDGE_DISCOVER_PAIR,
+  EDGE_DISCOVER_GRAPH,
+  ABSTRACT_SYNTHESIS,
+  HINDSIGHT_REVIEW,
+  DREAM_REPORT,
+  MEMORY_CATEGORIES,
+} from './prompts.js';
 
 // Module-level counter shared across dream phases. dreamConsolidate /
 // dreamPhaseA / dreamPhaseB reset it at the top of the cycle and read it
@@ -302,17 +315,11 @@ async function refineMemories(
 
       if (allEvidence.length === 0) continue;
 
-      // Use combined evidence as the observation content for refinement.
-      const observationSnippets = allEvidence
-        .slice(0, 10)
-        .map((e) => `- ${e}`)
-        .join('\n');
-
-      const prompt =
-        `You are refining a memory concept based on new observations.\n\n` +
-        `Current definition: ${memory.definition}\n\n` +
-        `New observations:\n${observationSnippets}\n\n` +
-        `Write an improved definition that incorporates the new observations. Keep it concise (2-4 sentences). Do not include any preamble.`;
+      const usableEvidence = allEvidence.slice(0, 10);
+      const prompt = REFINE_DEFINITION.build({
+        definition: memory.definition,
+        observations: usableEvidence,
+      });
 
       const newDefinition = await llm.generate(prompt, {
         temperature: 0.1,
@@ -321,23 +328,16 @@ async function refineMemories(
 
       if (!newDefinition || newDefinition.trim() === memory.definition.trim()) continue;
 
-      // Foreign thought detection — reject refined definitions that smell like generic LLM mush.
-      const ftMarkers = [
-        // Gemini-origin markers
-        'this concept', 'this memory concept', 'expanding digital landscape',
-        'fundamentally unknowable', 'critical challenge', 'inevitable future',
-        'broader context', 'deeper understanding', 'multifaceted',
-        'nuanced understanding', 'holistic approach', 'inherent complexity',
-        'paradigm', 'interconnected', 'transformative',
-        // Ollama 14B markers
-        'this pattern unifies', 'this pattern connects', 'this pattern bridges',
-        'this memory concept integrates', 'adaptive knowledge', 'structured coordination',
-      ];
-      const lowerDef = newDefinition.toLowerCase();
-      if (ftMarkers.some(m => lowerDef.includes(m))) continue;
-
-      // Reject definitions with markdown formatting — refined definitions should be plain text
-      if (/^\*\*/.test(newDefinition.trim())) continue;
+      // Structural quality gate: a refined definition must be grounded in the
+      // definition + evidence it was derived from, complete, and free of
+      // generic LLM filler. Replaces the old string-blocklist-only check.
+      const quality = assessThought(newDefinition, {
+        evidence: [memory.definition, ...usableEvidence],
+      });
+      if (!quality.ok) {
+        console.error(`[dream:refine] Rejected refinement for ${memory.id}: ${quality.reasons.join('; ')}`);
+        continue;
+      }
 
       // Embed before the transaction — LLM calls inside withTransaction
       // would hold the writer mutex open. See docs/concurrency.md.
@@ -373,13 +373,13 @@ async function refineMemories(
           const targetMem = await store.getMemory(edge.target_id);
           if (!targetMem) continue;
 
-          const validationPrompt =
-            `Does this relationship still hold?\n\n` +
-            `Concept A (updated): ${newDefinition.trim()}\n` +
-            `Concept B: ${targetMem.name} — ${targetMem.definition}\n` +
-            `Relationship: ${edge.relation}\n` +
-            `Evidence: ${edge.evidence}\n\n` +
-            `Respond with JSON: {"valid": true/false, "reason": "brief explanation"}`;
+          const validationPrompt = EDGE_REVALIDATE.build({
+            updatedDefinition: newDefinition.trim(),
+            targetName: targetMem.name,
+            targetDefinition: targetMem.definition,
+            relation: edge.relation,
+            evidence: edge.evidence,
+          });
 
           const validation = await llm.generateJSON<{ valid: boolean; reason: string }>(
             validationPrompt, { temperature: 0.1 }
@@ -454,21 +454,13 @@ async function createFromUnclustered(
       // Infer category — try LLM first, fall back to content_type-based heuristic.
       let category: MemoryCategory = 'observation';
       try {
-        const categoryPrompt =
-          `Classify this text into exactly one category: belief, pattern, entity, topic, value, project, insight, observation.\n\n` +
-          `Text: ${obs.content}\n\n` +
-          `Respond with only the category name, nothing else.`;
+        const rawCategory = await llm.generate(
+          CLASSIFY_CATEGORY.build({ content: obs.content }),
+          { temperature: 0, maxTokens: 20 },
+        );
 
-        const rawCategory = await llm.generate(categoryPrompt, {
-          temperature: 0,
-          maxTokens: 20,
-        });
-
-        const validCategories: MemoryCategory[] = [
-          'belief', 'pattern', 'entity', 'topic', 'value', 'project', 'insight', 'observation',
-        ];
         const inferred = rawCategory.trim().toLowerCase() as MemoryCategory;
-        category = validCategories.includes(inferred) ? inferred : 'observation';
+        category = MEMORY_CATEGORIES.includes(inferred) ? inferred : 'observation';
       } catch (err) {
         dreamFailure(`create:classify:${obs.id}`, err);
         // LLM classification failed — fall back to content_type heuristic so the
@@ -553,12 +545,26 @@ async function discoverEdges(
 
   if (recent.length < 2) return { edges_discovered: 0 };
 
+  // Embedding pre-filter: below this cosine similarity, two memories share so
+  // little semantic ground that an LLM relationship check is not worth the
+  // call. Kept deliberately low — genuine contradictions and tensions are
+  // still topically similar; only true non-sequiturs fall under it.
+  const PAIR_SIMILARITY_FLOOR = 0.2;
+
   for (let i = 0; i < recent.length; i++) {
     for (let j = i + 1; j < recent.length; j++) {
       const memA = recent[i];
       const memB = recent[j];
 
       try {
+        if (
+          memA.embedding?.length && memB.embedding?.length &&
+          memA.embedding.length === memB.embedding.length &&
+          cosineSimilarity(memA.embedding, memB.embedding) < PAIR_SIMILARITY_FLOOR
+        ) {
+          continue;
+        }
+
         // Check if an edge already exists in either direction.
         const edgesFromA = await store.getEdgesFrom(memA.id);
         const alreadyConnected = edgesFromA.some(
@@ -566,12 +572,10 @@ async function discoverEdges(
         );
         if (alreadyConnected) continue;
 
-        const prompt =
-          `Do these two concepts have a meaningful relationship?\n\n` +
-          `Concept A: ${memA.name} — ${memA.definition}\n` +
-          `Concept B: ${memB.name} — ${memB.definition}\n\n` +
-          `If yes, respond with JSON: {"relation": "extends|refines|contradicts|tensions-with|questions|supports|exemplifies|caused|related", "evidence": "brief explanation"}\n` +
-          `If no meaningful relationship, respond with: {"relation": null}`;
+        const prompt = EDGE_DISCOVER_PAIR.build({
+          nameA: memA.name, definitionA: memA.definition,
+          nameB: memB.name, definitionB: memB.definition,
+        });
 
         const result = await llm.generateJSON<EdgeDiscoveryResponse>(prompt, {
           temperature: 0.2,
@@ -674,24 +678,11 @@ async function discoverEdgesLongContext(
     .map((m) => `[${m.id}] (${m.category}) ${m.name}: ${m.definition}`)
     .join('\n');
 
-  const prompt =
-    `You are analysing the memory graph of a cognitive AI agent.\n\n` +
-    `MEMORY NODES (${recentMemories.length}):\n${memoryLines}\n\n` +
-    `EXISTING EDGES:\n${existingEdgeLines}\n\n` +
-    `TASK: Identify all meaningful relationships that are MISSING from this graph.\n` +
-    `Look especially for:\n` +
-    `- Transitive patterns (A extends B, B contradicts C → does A tension-with C?)\n` +
-    `- Cross-domain connections between different categories\n` +
-    `- Causal chains and supporting evidence relationships\n` +
-    `- Contradictions or tensions not yet captured\n\n` +
-    `RULES:\n` +
-    `- Use exact IDs from the memory nodes above\n` +
-    `- Do not suggest edges that already exist\n` +
-    `- Only suggest edges where a real semantic relationship exists\n` +
-    `- Valid relation types: ${validRelations.join(', ')}\n\n` +
-    `Respond with a JSON array. Each element: ` +
-    `{"source_id": "...", "target_id": "...", "relation": "...", "evidence": "one sentence"}\n` +
-    `If no new edges are needed, respond with: []`;
+  const prompt = EDGE_DISCOVER_GRAPH.build({
+    memoryLines,
+    memoryCount: recentMemories.length,
+    existingEdgeLines,
+  });
 
   let discovered: LongContextEdge[];
   try {
@@ -792,6 +783,18 @@ async function scoreMemories(
     // Edge fetch failed — proceed without contradiction signal
   }
 
+  // Unresolved CONTRADICTION signals also count: contradict() records
+  // observation-vs-memory conflicts as signals, not edges (observations are
+  // not graph nodes), so edge scanning alone misses them.
+  try {
+    const openContradictions = await store.getSignals({ resolved: false, type: 'CONTRADICTION' });
+    for (const signal of openContradictions) {
+      for (const conceptId of signal.concept_ids) contradictionSet.add(conceptId);
+    }
+  } catch {
+    // Signal fetch failed — proceed with edge-based detection only
+  }
+
   for (const memory of reviewable) {
     try {
       const elapsed = elapsedDaysSince(memory.fsrs.last_review);
@@ -826,13 +829,21 @@ async function scoreMemories(
 
       const scheduled = scheduleNext(memory.fsrs, rating, elapsed);
 
-      await store.touchMemory(memory.id, {
-        stability: scheduled.stability,
-        difficulty: scheduled.difficulty,
-        reps: memory.fsrs.reps + 1,
-        lapses: memory.fsrs.lapses,
-        state: scheduled.state,
-        last_review: new Date(),
+      // updateMemory, NOT touchMemory: passive dream review is maintenance,
+      // not access. touchMemory would refresh last_accessed, which the next
+      // cycle's "recently accessed → rating 3" rule reads — dreams would then
+      // reinforce every memory they score, manufacturing exactly the silent
+      // confidence-hardening the hindsight phase exists to catch. Only real
+      // retrieval (query/validate) may count as access.
+      await store.updateMemory(memory.id, {
+        fsrs: {
+          stability: scheduled.stability,
+          difficulty: scheduled.difficulty,
+          reps: memory.fsrs.reps + 1,
+          lapses: memory.fsrs.lapses,
+          state: scheduled.state,
+          last_review: new Date(),
+        },
       });
 
       scored++;
@@ -899,14 +910,7 @@ async function abstractCrossDomain(
         .map((m) => `[${m.category}] ${m.name}: ${m.definition}`)
         .join('\n\n');
 
-      const prompt =
-        `Find a higher-level principle or pattern that connects these diverse concepts:\n\n` +
-        `${conceptLines}\n\n` +
-        `Write a concise abstraction (2-4 sentences) that captures the deeper connection. ` +
-        `Be specific — name the pattern and explain why it matters. ` +
-        `If no meaningful connection exists, respond with 'NO_ABSTRACTION'.`;
-
-      const result = await llm.generate(prompt, {
+      const result = await llm.generate(ABSTRACT_SYNTHESIS.build({ conceptLines }), {
         temperature: 0.4,
         maxTokens: 500,
       });
@@ -914,27 +918,18 @@ async function abstractCrossDomain(
       const trimmed = result.trim();
       if (!trimmed || trimmed.includes('NO_ABSTRACTION')) continue;
 
-      // Validate: must end with sentence-ending punctuation (not truncated mid-sentence)
-      if (!/[.!?]$/.test(trimmed)) continue;
-
-      // Foreign thought detection — reject dream output that smells like generic LLM mush.
-      // These markers were identified empirically from Gemini dream contamination (2026-04-02).
-      const foreignThoughtMarkers = [
-        // Gemini-origin markers (identified 2026-04-02)
-        'this concept', 'this memory concept', 'expanding digital landscape',
-        'fundamentally unknowable', 'service gravity', 'critical challenge',
-        'inevitable future', 'broader context', 'deeper understanding',
-        'multifaceted', 'nuanced understanding', 'holistic approach',
-        'inherent complexity', 'paradigm', 'interconnected', 'transformative',
-        // Ollama 14B markers (identified 2026-04-02 from first local dream)
-        'this pattern unifies', 'this pattern connects', 'this pattern bridges',
-        'adaptive knowledge', 'structured coordination', 'transparent boundaries',
-      ];
-      const lower = trimmed.toLowerCase();
-      if (foreignThoughtMarkers.some(m => lower.includes(m))) continue;
-
-      // Reject abstractions with markdown formatting — real thoughts don't need bold/italic wrappers
-      if (/^\*\*Pattern\*\*|^\*\*[A-Z]/.test(trimmed)) continue;
+      // Structural quality gate. Abstractions legitimately introduce new
+      // vocabulary (that's what abstraction is), so the grounding floor is
+      // lower than refine's — but a real cross-domain pattern still names
+      // the concepts it connects, while generic filler names nothing.
+      const quality = assessThought(trimmed, {
+        evidence: sampledMemories.map((m) => `${m.name} ${m.definition}`),
+        minGrounding: 0.1,
+      });
+      if (!quality.ok) {
+        console.error(`[dream:abstract] Rejected abstraction: ${quality.reasons.join('; ')}`);
+        continue;
+      }
 
       // Check novelty — don't store abstractions too similar to existing memories.
       const abstEmbedding = await embed.embed(trimmed);
@@ -1076,20 +1071,17 @@ async function hindsightReview(
       );
       const edgeSummary = edgeLines.join('\n') || 'none';
 
-      const prompt =
-        `You are performing a hindsight review of a belief that has been repeatedly reinforced without ever failing a review or being contradicted.\n\n` +
-        `Memory: "${memory.name}"\n` +
-        `Definition: ${memory.definition}\n` +
-        `Category: ${memory.category}\n` +
-        `Confidence: ${memory.confidence.toFixed(2)}, FSRS stability: ${memory.fsrs.stability.toFixed(1)} days, Reps: ${memory.fsrs.reps}, Lapses: ${memory.fsrs.lapses}\n` +
-        `${historyNote}\n` +
-        `Connected concepts:\n${edgeSummary}\n\n` +
-        `Critically examine this belief. Consider:\n` +
-        `- Could this have hardened through narrow, self-confirming signals rather than diverse evidence?\n` +
-        `- Is the definition overstated, incomplete, or context-dependent in ways not captured here?\n` +
-        `- Are there implicit assumptions embedded in it that should be made explicit or questioned?\n\n` +
-        `Respond with JSON only — no preamble:\n` +
-        `{"concern": "string describing the issue, or null if none", "confidence_penalty": <number 0.0–0.25, use 0.0 if no concern>, "revised_definition": "string or null", "reason": "brief explanation"}`;
+      const prompt = HINDSIGHT_REVIEW.build({
+        name: memory.name,
+        definition: memory.definition,
+        category: memory.category,
+        confidence: memory.confidence,
+        stability: memory.fsrs.stability,
+        reps: memory.fsrs.reps,
+        lapses: memory.fsrs.lapses,
+        historyNote,
+        edgeSummary,
+      });
 
       const result = await llm.generateJSON<{
         concern: string | null;
@@ -1204,15 +1196,13 @@ async function generateReport(
       ? ` Hindsight: ${hindsight.reviewed} entrenched memories audited, ${hindsight.revised} revised.`
       : '';
 
-    const prompt =
-      `Summarize this dream consolidation session in 2-3 sentences.\n\n` +
-      `Stats: ${cluster.clustered} observations clustered, ${refine.refined} memories refined, ` +
+    const statsLine =
+      `${cluster.clustered} observations clustered, ${refine.refined} memories refined, ` +
       `${create.created} new memories created, ${connect.edges_discovered} edges discovered, ` +
       `${score.scored} memories reviewed, ${abstract.abstractions} abstractions formed.` +
-      fiedlerNote + peNote + hindsightNote + `\n\n` +
-      `Write a brief, reflective summary of what was learned and consolidated.`;
+      fiedlerNote + peNote + hindsightNote;
 
-    const text = await llm.generate(prompt, {
+    const text = await llm.generate(DREAM_REPORT.build({ statsLine }), {
       temperature: 0.7,
       maxTokens: 200,
     });

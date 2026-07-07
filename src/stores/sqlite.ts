@@ -22,6 +22,7 @@ import type {
   OpsEntry,
   OpsFilters,
   Signal,
+  SignalFilters,
   BeliefEntry,
   SearchResult,
   FSRSData,
@@ -134,6 +135,14 @@ interface OpsRow {
 interface BeliefRow {
   id: string; concept_id: string; old_definition: string;
   new_definition: string; reason: string; changed_at: string;
+  valid_from: string | null; valid_to: string | null;
+}
+
+interface SignalRow {
+  id: string; type: string; description: string; concept_ids: string;
+  priority: number; resolved: number; created_at: string;
+  resolution_note: string | null;
+  resolved_at: string | null; observation_id: string | null;
 }
 
 interface GenericRow { collection: string; id: string; data: string; }
@@ -221,6 +230,40 @@ function rowToBelief(r: BeliefRow): BeliefEntry {
     id: r.id, concept_id: r.concept_id,
     old_definition: r.old_definition, new_definition: r.new_definition,
     reason: r.reason, changed_at: toDate(r.changed_at),
+    valid_from: toDateOrNull(r.valid_from),
+    valid_to: toDateOrNull(r.valid_to),
+  };
+}
+
+function rowToSignal(r: SignalRow): Signal {
+  return {
+    id: r.id, type: r.type as Signal['type'],
+    description: r.description,
+    concept_ids: parseJSON<string[]>(r.concept_ids, []),
+    priority: r.priority, resolved: r.resolved === 1,
+    created_at: toDate(r.created_at),
+    resolution_note: r.resolution_note,
+    resolved_at: toDateOrNull(r.resolved_at),
+    observation_id: r.observation_id ?? undefined,
+  };
+}
+
+/**
+ * Convert a legacy generic_docs signal (written through store.put('signals')
+ * before signals had first-class reads) into a Signal.
+ */
+function genericDocToSignal(doc: Record<string, unknown>): Signal {
+  return {
+    id: String(doc.id ?? ''),
+    type: doc.type as Signal['type'],
+    description: typeof doc.description === 'string' ? doc.description : '',
+    concept_ids: Array.isArray(doc.concept_ids) ? doc.concept_ids.map(String) : [],
+    priority: typeof doc.priority === 'number' ? doc.priority : 0.5,
+    resolved: doc.resolved === true,
+    created_at: typeof doc.created_at === 'string' ? toDate(doc.created_at) : new Date(0),
+    resolution_note: typeof doc.resolution_note === 'string' ? doc.resolution_note : null,
+    resolved_at: typeof doc.resolved_at === 'string' ? toDate(doc.resolved_at) : null,
+    observation_id: typeof doc.observation_id === 'string' ? doc.observation_id : undefined,
   };
 }
 
@@ -267,12 +310,13 @@ const SCHEMAS: Record<string, string> = {
     id TEXT PRIMARY KEY, type TEXT NOT NULL, description TEXT NOT NULL,
     concept_ids TEXT NOT NULL DEFAULT '[]', priority REAL NOT NULL DEFAULT 0.5,
     resolved INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL,
-    resolution_note TEXT
+    resolution_note TEXT, resolved_at TEXT, observation_id TEXT
   )`,
   beliefs: `CREATE TABLE IF NOT EXISTS %T (
     id TEXT PRIMARY KEY, concept_id TEXT NOT NULL,
     old_definition TEXT NOT NULL, new_definition TEXT NOT NULL,
-    reason TEXT NOT NULL, changed_at TEXT NOT NULL
+    reason TEXT NOT NULL, changed_at TEXT NOT NULL,
+    valid_from TEXT, valid_to TEXT
   )`,
   generic_docs: `CREATE TABLE IF NOT EXISTS %T (
     collection TEXT NOT NULL, id TEXT NOT NULL, data TEXT NOT NULL,
@@ -340,6 +384,12 @@ export class SqliteCortexStore implements CortexStore {
     this.addColumn(this.t('memories'), 'last_retrieval_score REAL');
     this.addColumn(this.t('memories'), 'last_hop_count INTEGER');
     this.addColumn(this.t('memories'), 'memory_origin TEXT');
+    // Signal resolution metadata + source observation (see tools/contradict.ts).
+    this.addColumn(this.t('signals'), 'resolved_at TEXT');
+    this.addColumn(this.t('signals'), 'observation_id TEXT');
+    // Bitemporal belief entries: valid time alongside system time (changed_at).
+    this.addColumn(this.t('beliefs'), 'valid_from TEXT');
+    this.addColumn(this.t('beliefs'), 'valid_to TEXT');
     this.migrateEmbeddingsToBlobs();
   }
 
@@ -386,6 +436,7 @@ export class SqliteCortexStore implements CortexStore {
 
     idx('idx_edges_source', 'edges', 'source_id');
     idx('idx_edges_target', 'edges', 'target_id');
+    idx('idx_signals_resolved', 'signals', 'resolved, priority');
     idx('idx_obs_processed', 'observations', 'processed, created_at');
     idx('idx_memories_updated', 'memories', 'updated_at');
     idx('idx_ops_created', 'ops', 'created_at');
@@ -730,14 +781,86 @@ export class SqliteCortexStore implements CortexStore {
   async putSignal(signal: Omit<Signal, 'id'>): Promise<string> {
     const id = randomUUID();
     this.db.prepare(`INSERT INTO ${this.t('signals')} (
-      id, type, description, concept_ids, priority, resolved, created_at, resolution_note
-    ) VALUES (@id, @type, @desc, @cids, @pri, @res, @ca, @rn)`).run({
+      id, type, description, concept_ids, priority, resolved, created_at,
+      resolution_note, resolved_at, observation_id
+    ) VALUES (@id, @type, @desc, @cids, @pri, @res, @ca, @rn, @ra, @oid)`).run({
       id, type: signal.type, desc: signal.description,
       cids: JSON.stringify(signal.concept_ids ?? []),
       pri: signal.priority, res: signal.resolved ? 1 : 0,
       ca: toISO(signal.created_at), rn: signal.resolution_note ?? null,
+      ra: signal.resolved_at ? toISO(signal.resolved_at) : null,
+      oid: signal.observation_id ?? null,
     });
     return id;
+  }
+
+  async getSignal(id: string): Promise<Signal | null> {
+    const row = this.db.prepare(
+      `SELECT * FROM ${this.t('signals')} WHERE id = ?`
+    ).get(id) as SignalRow | undefined;
+    if (row) return rowToSignal(row);
+
+    // Legacy: signals written through the generic collection API before
+    // signals had first-class reads.
+    const legacy = await this.get('signals', id);
+    return legacy ? genericDocToSignal(legacy) : null;
+  }
+
+  async getSignals(filters: SignalFilters = {}): Promise<Signal[]> {
+    const conds: string[] = [];
+    const vals: unknown[] = [];
+    if (filters.resolved !== undefined) { conds.push('resolved = ?'); vals.push(filters.resolved ? 1 : 0); }
+    if (filters.type !== undefined) { conds.push('type = ?'); vals.push(filters.type); }
+    const where = conds.length > 0 ? `WHERE ${conds.join(' AND ')}` : '';
+
+    const rows = this.db.prepare(
+      `SELECT * FROM ${this.t('signals')} ${where} ORDER BY priority DESC, created_at DESC`
+    ).all(...vals) as SignalRow[];
+    const signals = rows.map(rowToSignal);
+
+    // Merge legacy generic_docs signals (dedup by id, dedicated table wins).
+    const seen = new Set(signals.map((s) => s.id));
+    const legacyRows = this.db.prepare(
+      `SELECT data FROM ${this.t('generic_docs')} WHERE collection = 'signals'`
+    ).all() as { data: string }[];
+    for (const { data } of legacyRows) {
+      const signal = genericDocToSignal(parseJSON<Record<string, unknown>>(data, {}));
+      if (!signal.id || seen.has(signal.id)) continue;
+      if (filters.resolved !== undefined && signal.resolved !== filters.resolved) continue;
+      if (filters.type !== undefined && signal.type !== filters.type) continue;
+      signals.push(signal);
+    }
+
+    signals.sort((a, b) =>
+      b.priority - a.priority || b.created_at.getTime() - a.created_at.getTime());
+    return filters.limit !== undefined ? signals.slice(0, filters.limit) : signals;
+  }
+
+  async updateSignal(id: string, updates: Partial<Omit<Signal, 'id'>>): Promise<void> {
+    const sets: string[] = [];
+    const vals: Record<string, unknown> = { id };
+    if (updates.type !== undefined) { sets.push('type = @type'); vals.type = updates.type; }
+    if (updates.description !== undefined) { sets.push('description = @desc'); vals.desc = updates.description; }
+    if (updates.concept_ids !== undefined) { sets.push('concept_ids = @cids'); vals.cids = JSON.stringify(updates.concept_ids); }
+    if (updates.priority !== undefined) { sets.push('priority = @pri'); vals.pri = updates.priority; }
+    if (updates.resolved !== undefined) { sets.push('resolved = @res'); vals.res = updates.resolved ? 1 : 0; }
+    if (updates.resolution_note !== undefined) { sets.push('resolution_note = @rn'); vals.rn = updates.resolution_note; }
+    if (updates.resolved_at !== undefined) { sets.push('resolved_at = @ra'); vals.ra = updates.resolved_at ? toISO(updates.resolved_at) : null; }
+    if (updates.observation_id !== undefined) { sets.push('observation_id = @oid'); vals.oid = updates.observation_id; }
+    if (sets.length === 0) return;
+
+    const result = this.db.prepare(
+      `UPDATE ${this.t('signals')} SET ${sets.join(', ')} WHERE id = @id`
+    ).run(vals);
+    if (result.changes > 0) return;
+
+    // Legacy generic_docs signal — merge updates into the JSON doc.
+    const legacy = await this.get('signals', id);
+    if (!legacy) throw new Error(`Document not found: signals/${id}`);
+    const serialized: Record<string, unknown> = { ...updates };
+    if (updates.created_at !== undefined) serialized.created_at = toISO(updates.created_at);
+    if (updates.resolved_at !== undefined) serialized.resolved_at = updates.resolved_at ? toISO(updates.resolved_at) : null;
+    await this.update('signals', id, serialized);
   }
 
   // ─── Belief ────────────────────────────────────────────────────────────────
@@ -745,10 +868,13 @@ export class SqliteCortexStore implements CortexStore {
   async putBelief(entry: Omit<BeliefEntry, 'id'>): Promise<string> {
     const id = randomUUID();
     this.db.prepare(`INSERT INTO ${this.t('beliefs')} (
-      id, concept_id, old_definition, new_definition, reason, changed_at
-    ) VALUES (@id, @cid, @od, @nd, @r, @ca)`).run({
+      id, concept_id, old_definition, new_definition, reason, changed_at,
+      valid_from, valid_to
+    ) VALUES (@id, @cid, @od, @nd, @r, @ca, @vf, @vt)`).run({
       id, cid: entry.concept_id, od: entry.old_definition,
       nd: entry.new_definition, r: entry.reason, ca: toISO(entry.changed_at),
+      vf: entry.valid_from ? toISO(entry.valid_from) : null,
+      vt: entry.valid_to ? toISO(entry.valid_to) : null,
     });
     return id;
   }
@@ -994,21 +1120,27 @@ export class SqliteCortexStore implements CortexStore {
 
   async upsertSignal(signal: Signal): Promise<void> {
     this.db.prepare(`INSERT OR REPLACE INTO ${this.t('signals')} (
-      id, type, description, concept_ids, priority, resolved, created_at, resolution_note
-    ) VALUES (@id, @type, @desc, @cids, @pri, @res, @ca, @rn)`).run({
+      id, type, description, concept_ids, priority, resolved, created_at,
+      resolution_note, resolved_at, observation_id
+    ) VALUES (@id, @type, @desc, @cids, @pri, @res, @ca, @rn, @ra, @oid)`).run({
       id: signal.id, type: signal.type, desc: signal.description,
       cids: JSON.stringify(signal.concept_ids ?? []),
       pri: signal.priority, res: signal.resolved ? 1 : 0,
       ca: toISO(signal.created_at), rn: signal.resolution_note ?? null,
+      ra: signal.resolved_at ? toISO(signal.resolved_at) : null,
+      oid: signal.observation_id ?? null,
     });
   }
 
   async upsertBelief(belief: BeliefEntry): Promise<void> {
     this.db.prepare(`INSERT OR REPLACE INTO ${this.t('beliefs')} (
-      id, concept_id, old_definition, new_definition, reason, changed_at
-    ) VALUES (@id, @cid, @od, @nd, @r, @ca)`).run({
+      id, concept_id, old_definition, new_definition, reason, changed_at,
+      valid_from, valid_to
+    ) VALUES (@id, @cid, @od, @nd, @r, @ca, @vf, @vt)`).run({
       id: belief.id, cid: belief.concept_id, od: belief.old_definition,
       nd: belief.new_definition, r: belief.reason, ca: toISO(belief.changed_at),
+      vf: belief.valid_from ? toISO(belief.valid_from) : null,
+      vt: belief.valid_to ? toISO(belief.valid_to) : null,
     });
   }
 

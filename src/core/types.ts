@@ -190,10 +190,28 @@ export interface Signal {
   resolved: boolean;
   created_at: Date;
   resolution_note: string | null;
+  /** When the signal was resolved. */
+  resolved_at?: Date | null;
+  /** Source observation for CONTRADICTION signals recorded via contradict. */
+  observation_id?: string;
+}
+
+export interface SignalFilters {
+  resolved?: boolean;
+  type?: SignalType;
+  limit?: number;
 }
 
 // ─── Belief ───────────────────────────────────────────────────────────────────
 
+/**
+ * A belief revision. Bitemporal: `changed_at` is system time (when the engine
+ * learned/recorded the revision); `valid_from`/`valid_to` are valid time (when
+ * the belief was true in the world). Valid time defaults to unknown (null) —
+ * when set, "moved to Berlin in June" superseding "lives in Paris" is temporal
+ * succession, not contradiction. By convention an entry's effective valid_to
+ * is the next entry's valid_from when its own valid_to is null.
+ */
 export interface BeliefEntry {
   id: string;
   concept_id: string;
@@ -201,6 +219,10 @@ export interface BeliefEntry {
   new_definition: string;
   reason: string;
   changed_at: Date;
+  /** When the belief became true in the world (valid time), if known. */
+  valid_from?: Date | null;
+  /** When the belief stopped being true in the world (valid time), if known. */
+  valid_to?: Date | null;
 }
 
 // ─── Search Results ───────────────────────────────────────────────────────────

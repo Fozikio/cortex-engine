@@ -17,6 +17,7 @@ export const believeTool: ToolDefinition = {
       concept_id: { type: 'string', description: 'ID of the memory/concept being revised' },
       new_definition: { type: 'string', description: 'The updated definition or belief' },
       reason: { type: 'string', description: 'Why this belief is changing' },
+      valid_from: { type: 'string', description: 'ISO date when the revised belief became true in the world (valid time) — e.g. "2026-06-01" when recording in July that the user moved in June. Omit if unknown.' },
       namespace: { type: 'string', description: 'Namespace (defaults to default namespace)' },
     },
     required: ['concept_id', 'new_definition', 'reason'],
@@ -25,7 +26,17 @@ export const believeTool: ToolDefinition = {
     const conceptId = str(args, 'concept_id');
     const newDefinition = str(args, 'new_definition');
     const reason = str(args, 'reason');
+    const validFromRaw = optStr(args, 'valid_from');
     const namespace = optStr(args, 'namespace');
+
+    let validFrom: Date | null = null;
+    if (validFromRaw) {
+      const parsed = new Date(validFromRaw);
+      if (Number.isNaN(parsed.getTime())) {
+        return { error: `Invalid valid_from date: ${validFromRaw}` };
+      }
+      validFrom = parsed;
+    }
 
     const store = ctx.namespaces.getStore(namespace);
 
@@ -51,6 +62,8 @@ export const believeTool: ToolDefinition = {
         new_definition: newDefinition,
         reason,
         changed_at: new Date(),
+        valid_from: validFrom,
+        valid_to: null,
       });
       await txn.updateMemory(conceptId, {
         definition: newDefinition,
@@ -67,6 +80,7 @@ export const believeTool: ToolDefinition = {
       old_definition: oldDefinition,
       new_definition: newDefinition,
       reason,
+      valid_from: validFrom?.toISOString() ?? null,
       namespace: namespace ?? ctx.namespaces.getDefaultNamespace(),
     };
 

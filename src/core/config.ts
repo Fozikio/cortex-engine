@@ -72,6 +72,19 @@ export interface CortexConfig {
   /** LLM provider: 'ollama' | 'gemini' | 'anthropic' | 'openai' | 'kimi' */
   llm: 'ollama' | 'gemini' | 'anthropic' | 'openai' | 'kimi';
 
+  /**
+   * NLI cross-encoder for contradiction adjudication (optional).
+   * When enabled, contradict() verifies claimed contradictions against a
+   * local NLI service before recording them; otherwise the configured LLM
+   * adjudicates. See engines/adjudicate.ts.
+   */
+  nli?: {
+    /** Enable NLI-based adjudication (default: false). */
+    enabled?: boolean;
+    /** NLI service base URL (default: http://127.0.0.1:11435). */
+    url?: string;
+  };
+
   /** Named cognitive namespaces. */
   namespaces: Record<string, NamespaceConfig>;
 
@@ -171,6 +184,36 @@ export interface AgentConfig {
   };
   agents?: Record<string, AgentEntry>;
   cortex: CortexConfig;
+}
+
+// ─── Tier resolution ──────────────────────────────────────────────────────────
+
+/**
+ * Resolve a model id to its capability tier via config.model_provenance.
+ * Matches on exact id or substring in either direction, so 'qwen2.5:14b'
+ * matches a configured 'qwen2.5' and vice versa. Unknown models default to
+ * 'medium' — unlisted models are neither trusted like frontier models nor
+ * capped like small local ones.
+ *
+ * Consumers: contradiction adjudication caps the verdict authority of
+ * low-tier models (see engines/adjudicate.ts).
+ */
+export function resolveModelTier(
+  modelId: string,
+  provenance?: ModelProvenanceConfig,
+): ConfidenceTier {
+  if (!modelId || !provenance?.confidence_tiers) return 'medium';
+  const id = modelId.toLowerCase();
+  for (const tier of ['high', 'medium', 'low'] as const) {
+    const models = provenance.confidence_tiers[tier] ?? [];
+    if (models.some((m) => {
+      const candidate = m.toLowerCase();
+      return id === candidate || id.includes(candidate) || candidate.includes(id);
+    })) {
+      return tier;
+    }
+  }
+  return 'medium';
 }
 
 // ─── Defaults ─────────────────────────────────────────────────────────────────

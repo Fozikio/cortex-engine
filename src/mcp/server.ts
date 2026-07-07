@@ -15,7 +15,9 @@ import {
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import type { CortexConfig } from '../core/config.js';
+import { resolveModelTier } from '../core/config.js';
 import { FederationClient } from '../federation/client.js';
+import { LocalNLIProvider } from '../providers/nli-http.js';
 
 function getPackageVersion(): string {
   try {
@@ -106,6 +108,15 @@ export async function createContext(config: CortexConfig): Promise<EngineContext
   // 7. Build tool context (includes allTools for trigger/bridge pipelines)
   const consolidator = new SessionConsolidator(namespaces, embed, llm);
   const ctx: ToolContext = { namespaces, embed, llm, session, triggers, bridges, allTools, consolidator };
+
+  // 7a. Wire NLI adjudication if configured (config.nli or CORTEX_NLI_URL env).
+  // Provider construction is cheap; availability is probed lazily per call
+  // with graceful LLM fallback (see engines/adjudicate.ts).
+  const nliUrl = config.nli?.url ?? process.env.CORTEX_NLI_URL;
+  if (config.nli?.enabled || process.env.CORTEX_NLI_URL) {
+    ctx.nli = new LocalNLIProvider(nliUrl ? { baseUrl: nliUrl } : undefined);
+  }
+  ctx.llmTier = resolveModelTier(llm.modelId, config.model_provenance);
 
   // 7b. Wire federation if configured
   if (config.federation) {

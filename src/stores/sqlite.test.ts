@@ -172,6 +172,7 @@ describe('legacy JSON-text embedding migration', () => {
       // Migrated rows must remain searchable.
       const results = await store2.findNearest([0.1, 0.2, 0.3], 5);
       expect(results.map(r => r.memory.id)).toContain('legacy');
+      getDb(store2).close();
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -197,6 +198,7 @@ describe('legacy JSON-text embedding migration', () => {
         .all() as { id: string; t: string }[];
       expect(rows.find(r => r.id === 'legacy-obs')!.t).toBe('blob');
       expect(rows.find(r => r.id === 'null-obs')!.t).toBe('null');
+      getDb(store2).close();
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -214,8 +216,161 @@ describe('legacy JSON-text embedding migration', () => {
       const memory = await store2.getMemory(id);
       expect(memory!.embedding[0]).toBeCloseTo(0.7, 6);
       expect(memory!.embedding[1]).toBeCloseTo(0.8, 6);
+      getDb(store2).close();
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('signals — first-class read/update', () => {
+  it('round-trips putSignal through getSignal and getSignals', async () => {
+    const store = new SqliteCortexStore(':memory:');
+    const id = await store.putSignal({
+      type: 'CONTRADICTION',
+      description: 'obs disputes memory',
+      concept_ids: ['mem-1'],
+      priority: 0.8,
+      resolved: false,
+      created_at: new Date('2026-07-01T00:00:00Z'),
+      resolution_note: null,
+      observation_id: 'obs-1',
+    });
+
+    const signal = await store.getSignal(id);
+    expect(signal).toMatchObject({
+      id,
+      type: 'CONTRADICTION',
+      concept_ids: ['mem-1'],
+      priority: 0.8,
+      resolved: false,
+      observation_id: 'obs-1',
+    });
+
+    // Regression: putSignal output must be visible to unresolved listing
+    // (previously written to a table nothing read — see surface tool).
+    const open = await store.getSignals({ resolved: false });
+    expect(open.map((s) => s.id)).toContain(id);
+  });
+
+  it('updateSignal resolves a signal', async () => {
+    const store = new SqliteCortexStore(':memory:');
+    const id = await store.putSignal({
+      type: 'TENSION',
+      description: 'needs follow-up',
+      concept_ids: [],
+      priority: 0.5,
+      resolved: false,
+      created_at: new Date(),
+      resolution_note: null,
+    });
+
+    const resolvedAt = new Date('2026-07-02T12:00:00Z');
+    await store.updateSignal(id, {
+      resolved: true,
+      resolution_note: 'handled',
+      resolved_at: resolvedAt,
+    });
+
+    const signal = await store.getSignal(id);
+    expect(signal!.resolved).toBe(true);
+    expect(signal!.resolution_note).toBe('handled');
+    expect(signal!.resolved_at!.toISOString()).toBe(resolvedAt.toISOString());
+
+    const open = await store.getSignals({ resolved: false });
+    expect(open.map((s) => s.id)).not.toContain(id);
+  });
+
+  it('filters by type and applies limit with priority ordering', async () => {
+    const store = new SqliteCortexStore(':memory:');
+    await store.putSignal({
+      type: 'GAP', description: 'low', concept_ids: [], priority: 0.2,
+      resolved: false, created_at: new Date(), resolution_note: null,
+    });
+    await store.putSignal({
+      type: 'CONTRADICTION', description: 'high', concept_ids: [], priority: 0.9,
+      resolved: false, created_at: new Date(), resolution_note: null,
+    });
+    await store.putSignal({
+      type: 'CONTRADICTION', description: 'mid', concept_ids: [], priority: 0.6,
+      resolved: false, created_at: new Date(), resolution_note: null,
+    });
+
+    const contradictions = await store.getSignals({ type: 'CONTRADICTION' });
+    expect(contradictions).toHaveLength(2);
+    expect(contradictions[0].description).toBe('high');
+
+    const limited = await store.getSignals({ resolved: false, limit: 1 });
+    expect(limited).toHaveLength(1);
+    expect(limited[0].description).toBe('high');
+  });
+
+  it('surfaces and updates legacy signals written through the generic API', async () => {
+    const store = new SqliteCortexStore(':memory:');
+    // Simulate a signal recorded by the old contradict tool.
+    const legacyId = await store.put('signals', {
+      type: 'CONTRADICTION',
+      description: 'legacy signal',
+      concept_ids: ['mem-9'],
+      priority: 0.8,
+      resolved: false,
+      created_at: new Date().toISOString(),
+      resolution_note: null,
+      observation_id: 'obs-9',
+    });
+
+    const open = await store.getSignals({ resolved: false });
+    const legacy = open.find((s) => s.id === legacyId);
+    expect(legacy).toBeDefined();
+    expect(legacy!.observation_id).toBe('obs-9');
+
+    expect(await store.getSignal(legacyId)).not.toBeNull();
+
+    await store.updateSignal(legacyId, { resolved: true, resolution_note: 'done' });
+    const stillOpen = await store.getSignals({ resolved: false });
+    expect(stillOpen.map((s) => s.id)).not.toContain(legacyId);
+  });
+
+  it('throws when updating a nonexistent signal', async () => {
+    const store = new SqliteCortexStore(':memory:');
+    await expect(store.updateSignal('no-such-id', { resolved: true }))
+      .rejects.toThrow('Document not found');
+  });
+});
+
+describe('beliefs — bitemporal fields', () => {
+  it('round-trips valid_from and valid_to through putBelief/getBeliefHistory', async () => {
+    const store = new SqliteCortexStore(':memory:');
+    const validFrom = new Date('2026-06-01T00:00:00Z');
+
+    await store.putBelief({
+      concept_id: 'mem-1',
+      old_definition: 'The user lives in Paris.',
+      new_definition: 'The user lives in Berlin.',
+      reason: 'Moved',
+      changed_at: new Date('2026-07-06T10:00:00Z'),
+      valid_from: validFrom,
+      valid_to: null,
+    });
+
+    const history = await store.getBeliefHistory('mem-1');
+    expect(history).toHaveLength(1);
+    expect(history[0].valid_from!.toISOString()).toBe(validFrom.toISOString());
+    expect(history[0].valid_to).toBeNull();
+  });
+
+  it('treats valid time as optional (legacy entries)', async () => {
+    const store = new SqliteCortexStore(':memory:');
+    await store.putBelief({
+      concept_id: 'mem-2',
+      old_definition: 'a',
+      new_definition: 'b',
+      reason: 'r',
+      changed_at: new Date(),
+    });
+
+    const history = await store.getBeliefHistory('mem-2');
+    expect(history[0].valid_from).toBeNull();
+    expect(history[0].valid_to).toBeNull();
   });
 });

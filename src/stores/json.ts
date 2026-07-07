@@ -23,6 +23,7 @@ import type {
   OpsEntry,
   OpsFilters,
   Signal,
+  SignalFilters,
   BeliefEntry,
   SearchResult,
   FSRSData,
@@ -80,6 +81,24 @@ function freshData(namespace: string): JsonStoreData {
     signals: {},
     beliefs: {},
     generic: {},
+  };
+}
+
+/** Convert a legacy generic-collection signal doc into a Signal. */
+function genericDocToSignal(doc: Record<string, unknown>): Signal {
+  const toDateSafe = (v: unknown): Date =>
+    v instanceof Date ? v : typeof v === 'string' ? new Date(v) : new Date(0);
+  return {
+    id: String(doc.id ?? ''),
+    type: doc.type as Signal['type'],
+    description: typeof doc.description === 'string' ? doc.description : '',
+    concept_ids: Array.isArray(doc.concept_ids) ? doc.concept_ids.map(String) : [],
+    priority: typeof doc.priority === 'number' ? doc.priority : 0.5,
+    resolved: doc.resolved === true,
+    created_at: toDateSafe(doc.created_at),
+    resolution_note: typeof doc.resolution_note === 'string' ? doc.resolution_note : null,
+    resolved_at: doc.resolved_at == null ? null : toDateSafe(doc.resolved_at),
+    observation_id: typeof doc.observation_id === 'string' ? doc.observation_id : undefined,
   };
 }
 
@@ -319,6 +338,44 @@ export class JsonCortexStore implements CortexStore {
     this.data.signals[id] = full;
     this.persist();
     return id;
+  }
+
+  async getSignal(id: string): Promise<Signal | null> {
+    const signal = this.data.signals[id];
+    if (signal) return clone(signal);
+    // Legacy: signals written through the generic collection API.
+    const legacy = this.data.generic['signals']?.[id];
+    return legacy ? genericDocToSignal(clone(legacy)) : null;
+  }
+
+  async getSignals(filters: SignalFilters = {}): Promise<Signal[]> {
+    const signals = Object.values(this.data.signals).map(s => clone(s));
+
+    // Merge legacy generic signals (dedup by id, first-class map wins).
+    const seen = new Set(signals.map(s => s.id));
+    for (const doc of Object.values(this.data.generic['signals'] ?? {})) {
+      const signal = genericDocToSignal(clone(doc));
+      if (!signal.id || seen.has(signal.id)) continue;
+      signals.push(signal);
+    }
+
+    const filtered = signals.filter(s =>
+      (filters.resolved === undefined || s.resolved === filters.resolved) &&
+      (filters.type === undefined || s.type === filters.type));
+    filtered.sort((a, b) =>
+      b.priority - a.priority || b.created_at.getTime() - a.created_at.getTime());
+    return filters.limit !== undefined ? filtered.slice(0, filters.limit) : filtered;
+  }
+
+  async updateSignal(id: string, updates: Partial<Omit<Signal, 'id'>>): Promise<void> {
+    const existing = this.data.signals[id];
+    if (existing) {
+      this.data.signals[id] = { ...existing, ...clone(updates), id };
+      this.persist();
+      return;
+    }
+    // Legacy generic signal.
+    await this.update('signals', id, clone(updates) as Record<string, unknown>);
   }
 
   // ─── Belief ────────────────────────────────────────────────────────────────

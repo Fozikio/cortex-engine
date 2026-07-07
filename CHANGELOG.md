@@ -1,5 +1,33 @@
 # Changelog
 
+## [Unreleased]
+
+### The epistemic-loops release
+
+A deep review concluded that the cognitive architecture was sound but its self-correction loops were severed at the joints: signals written to a table nothing read, contradictions recorded but never verified, the dream cycle rating its own maintenance as evidence of use, and evidence discarded at merge points. This release closes those loops.
+
+### Added
+
+- **First-class signal reads** — `CortexStore.getSignal(id)`, `getSignals(filters)`, `updateSignal(id, updates)` implemented in SQLite, Firestore, JSON, and `ScopedStore`. Fixes a split-brain bug where `putSignal` wrote a dedicated table on SQLite/JSON that `surface`/`resolve` never read — every SURPRISE and hindsight TENSION signal was invisible on the default backend. Legacy signals written through the generic collection API remain readable and updatable. `Signal` gains `resolved_at` and `observation_id`.
+- **Contradiction adjudication** (`engines/adjudicate.ts`, [docs/nli-adjudication.md](docs/nli-adjudication.md)) — `contradict` now verifies the claimed conflict before recording it: NLI cross-encoder first (both directions), LLM fallback, graceful degradation to unverified tension. Genuine contradictions apply a confidence penalty scaled by adjudicator confidence; complementary/unrelated evidence records nothing. `force: true` preserves caller authority. Low-tier adjudicators (per `model_provenance.confidence_tiers`, resolved via the new `resolveModelTier()`) cannot declare genuine contradictions below 0.8 confidence — the first real consumer of capability tiers.
+- **Observe-time implicit-conflict detection** — when an NLI provider is configured, `observe()` adjudicates observations that land in the merge/link band against the nearest memory before the gate can reinforce the memory they dispute (negations embed close to their affirmations). Genuine → `action: "contradiction"` + signal + penalty; succession → `action: "superseded"` + revision guidance. Opt out per call with `check_conflict: false`.
+- **Bitemporal belief entries** — `BeliefEntry.valid_from`/`valid_to` (valid time) alongside `changed_at` (system time); `believe` accepts `valid_from`. New `supersedes` adjudication verdict distinguishes temporal succession ("moved to Berlin" vs "lives in Paris") from same-time contradiction: succession recommends revision and applies no penalty, because a superseded belief was not wrong.
+- **NLI service bootstrap** (`scripts/nli-service/`, shipped in the npm package) — FastAPI cross-encoder service matching the `LocalNLIProvider` wire contract. `fozikio nli` runs it from an installed package: first run provisions a virtualenv at `~/.fozikio/nli-venv` and installs requirements, later runs start immediately (`--port/--host/--model/--venv/--reinstall`). Enable in the engine via `nli.enabled` config or `CORTEX_NLI_URL`.
+- **Versioned prompt registry** (`engines/prompts.ts`) — every cognitive prompt in the engine (dream phases, HyDE, adjudication, salience scoring, reflect, abstract, query-explain, agent-invoke findings, ruminate) as typed, versioned templates with a pinned snapshot test forcing deliberate version bumps. Migrating ruminate also removes a latent `String.replace` bug where `$`-patterns or a literal placeholder in the gathered context could corrupt the prompt.
+- **Structural thought-quality gate** (`engines/thought-quality.ts`) — dream refine/abstract output is judged by grounding (keyword overlap with the evidence it derives from) plus form checks; the empirical "foreign thought" marker lists survive as a weak corroborating signal instead of a model-specific veto.
+
+### Changed
+
+- **Dream score phase no longer counts as access.** Passive FSRS review previously called `touchMemory`, refreshing `last_accessed`/`updated_at` — the next cycle then read its own touch as "recently accessed → rating Good", so cron dreams reinforced every scored memory without real use (the exact silent hardening the hindsight phase audits for). Scoring now writes FSRS state only; access strength comes from genuine retrieval.
+- **FSRS contradiction penalty now sees signal-based contradictions**, not just `contradicts` edges — observation-vs-memory conflicts are signals (observations are not graph nodes) and were previously invisible to scoring.
+- **`observe` merge no longer discards content** — merged observations are stored unprocessed so the next dream cycle clusters them into the same memory and feeds the refine phase, converting duplicates into consolidation evidence.
+- **Pairwise edge discovery pre-filters by embedding similarity** (cosine < 0.2 skipped), cutting most of the O(n²) LLM calls without touching contradiction-range pairs.
+
+### Fixed
+
+- `npm test` now works on Windows (vitest invoked via its `.mjs` entry instead of the POSIX bin shim); file-backed SQLite tests close handles before temp-dir cleanup (Windows `EBUSY`).
+
+
 ## [1.2.1] — 2026-05-17
 
 ### Fixed

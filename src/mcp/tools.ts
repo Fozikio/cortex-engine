@@ -8,6 +8,8 @@
 
 import type { EmbedProvider } from '../core/embed.js';
 import type { LLMProvider } from '../core/llm.js';
+import type { NLIProvider } from '../core/nli.js';
+import type { ConfidenceTier } from '../core/types.js';
 import type { Session } from '../core/session.js';
 import type { NamespaceManager } from '../namespace/manager.js';
 import type { TriggerRegistry } from '../triggers/registry.js';
@@ -103,6 +105,10 @@ export interface ToolContext {
   federation?: FederationClient;
   /** Auto-consolidation engine — notified by observe/wonder/speculate after every write. */
   consolidator?: SessionConsolidator;
+  /** NLI cross-encoder for contradiction adjudication (optional, only if configured). */
+  nli?: NLIProvider;
+  /** Capability tier of the configured LLM, per config.model_provenance.confidence_tiers. */
+  llmTier?: ConfidenceTier;
 }
 
 // ─── Tool Definition ──────────────────────────────────────────────────────────

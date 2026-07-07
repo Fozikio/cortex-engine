@@ -158,7 +158,10 @@ export const observeTool: ToolDefinition = {
 
             const resolvedNs = namespace ?? ctx.namespaces.getDefaultNamespace();
             ctx.consolidator?.notifyObservation(resolvedNs);
-            await fireTriggers(ctx, resolvedNs, 'observe', text, { observation_id: obsId, nearest_id: gate.nearest_id, decision: conflictResult['action'] }, ctx.allTools);
+            // decision stays in the gate vocabulary (merge/link/novel) so
+            // trigger pipelines keying off it keep working; the conflict
+            // outcome travels separately as action.
+            await fireTriggers(ctx, resolvedNs, 'observe', text, { observation_id: obsId, nearest_id: gate.nearest_id, decision: gate.decision, action: conflictResult['action'] }, ctx.allTools);
             await fireBridges(ctx, resolvedNs, 'observe', conflictResult, ctx.allTools);
 
             return conflictResult;

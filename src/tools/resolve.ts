@@ -39,6 +39,28 @@ export const resolveTool: ToolDefinition = {
       resolved_at: new Date(),
     });
 
-    return { action: 'resolved', signal_id: signalId, note };
+    // The tool contract is "returns the updated signal" — read it back so
+    // callers see the post-resolution state.
+    const updated = await store.getSignal(signalId);
+
+    return {
+      action: 'resolved',
+      signal_id: signalId,
+      note,
+      signal: updated
+        ? {
+            id: updated.id,
+            type: updated.type,
+            description: updated.description,
+            concept_ids: updated.concept_ids,
+            priority: updated.priority,
+            resolved: updated.resolved,
+            resolution_note: updated.resolution_note,
+            created_at: updated.created_at.toISOString(),
+            resolved_at: updated.resolved_at?.toISOString() ?? null,
+            observation_id: updated.observation_id,
+          }
+        : null,
+    };
   },
 };

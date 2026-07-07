@@ -15,9 +15,9 @@ Persistent memory for AI agents. Open source, LLM-agnostic, works with any MCP c
 
 <a href="https://www.star-history.com/?repos=Fozikio%2Fcortex-engine&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/image?repos=Fozikio/cortex-engine&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/image?repos=Fozikio/cortex-engine&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/image?repos=Fozikio/cortex-engine&type=date&legend=top-left" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=Fozikio/cortex-engine&type=date&theme=dark&legend=top-left&sealed_token=m-r8kH953iT6pzBY9idt17lGZAGAPnwbLStINMT6BnqlJl0iwn1oc_xmkpc9bkzemp951q9oqe2HsZ94lae_47Ud_czVTwr-I8QaOwuQbPz-OGOHJroEFA" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=Fozikio/cortex-engine&type=date&legend=top-left&sealed_token=m-r8kH953iT6pzBY9idt17lGZAGAPnwbLStINMT6BnqlJl0iwn1oc_xmkpc9bkzemp951q9oqe2HsZ94lae_47Ud_czVTwr-I8QaOwuQbPz-OGOHJroEFA" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=Fozikio/cortex-engine&type=date&legend=top-left&sealed_token=m-r8kH953iT6pzBY9idt17lGZAGAPnwbLStINMT6BnqlJl0iwn1oc_xmkpc9bkzemp951q9oqe2HsZ94lae_47Ud_czVTwr-I8QaOwuQbPz-OGOHJroEFA" />
  </picture>
 </a>
 

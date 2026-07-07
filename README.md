@@ -15,13 +15,13 @@ Persistent memory for AI agents. Open source, LLM-agnostic, works with any MCP c
 
 ## Star History
 
-<a href="https://www.star-history.com/?repos=cortex-engine%2Fcortex-engine&type=date&legend=top-left">
+[<a href="https://www.star-history.com/?repos=cortex-engine%2Fcortex-engine&type=date&legend=top-left">
  <picture>
    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=cortex-engine/cortex-engine&type=date&theme=dark&legend=top-left&sealed_token=TgdfHvNH9_FEwh0Kf0Oz9oAkA4QuO8Shkpje1OBJFUi4_qDD-0MjVBVeqmlvIPTmVJhV6C4bl4-t9B6IbaOqTc6tndywoG-rIY0WPXsKDq3t9CWiFWYw76VCUFpCETQ7UcaCMbmzk25DaRcQiFHPTGinxiGOeBtCRuGGrsGJHTQ-tJO1cJKYym_yRR0N" />
    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=cortex-engine/cortex-engine&type=date&legend=top-left&sealed_token=TgdfHvNH9_FEwh0Kf0Oz9oAkA4QuO8Shkpje1OBJFUi4_qDD-0MjVBVeqmlvIPTmVJhV6C4bl4-t9B6IbaOqTc6tndywoG-rIY0WPXsKDq3t9CWiFWYw76VCUFpCETQ7UcaCMbmzk25DaRcQiFHPTGinxiGOeBtCRuGGrsGJHTQ-tJO1cJKYym_yRR0N" />
    <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=cortex-engine/cortex-engine&type=date&legend=top-left&sealed_token=TgdfHvNH9_FEwh0Kf0Oz9oAkA4QuO8Shkpje1OBJFUi4_qDD-0MjVBVeqmlvIPTmVJhV6C4bl4-t9B6IbaOqTc6tndywoG-rIY0WPXsKDq3t9CWiFWYw76VCUFpCETQ7UcaCMbmzk25DaRcQiFHPTGinxiGOeBtCRuGGrsGJHTQ-tJO1cJKYym_yRR0N" />
  </picture>
-</a>
+</a>](https://www.star-history.com/?repos=Fozikio%2Fcortex-engine&type=date&legend=top-left)
 
 ## What It Does
 

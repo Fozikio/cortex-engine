@@ -5,7 +5,20 @@ adjudication (`contradict` tool and observe-time implicit-conflict detection).
 See [docs/nli-adjudication.md](../../docs/nli-adjudication.md) for how the
 engine uses it.
 
-## Quickstart
+## Quickstart (installed package)
+
+The service ships with the npm package. From anywhere:
+
+```bash
+fozikio nli
+```
+
+First run creates a virtualenv at `~/.fozikio/nli-venv`, installs the
+requirements (torch is large — a few minutes), and starts the server.
+Later runs start immediately. Flags: `--port`, `--host`, `--model`,
+`--venv <dir>`, `--reinstall`.
+
+## Quickstart (manual / repo clone)
 
 ```bash
 cd scripts/nli-service

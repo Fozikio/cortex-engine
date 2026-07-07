@@ -28,6 +28,7 @@ import { runMaintain } from './maintain-cmd.js';
 import { runWander } from './wander-cmd.js';
 import { runMigrate } from './migrate-cmd.js';
 import { runToolsCmd } from './tools-cmd.js';
+import { runNliCmd } from './nli-cmd.js';
 import { createContext, startServer } from '../mcp/server.js';
 import { startRestServer } from '../rest/server.js';
 
@@ -53,6 +54,7 @@ Commands:
   wander         Walk through the memory graph
   migrate        Clone data between two CortexStore backends
   tools          List cortex tools by category
+  nli            Run the bundled NLI service for contradiction adjudication
   help           Show this help message
 
 Serve options:
@@ -119,6 +121,13 @@ Maintain re-embed flags:
   --null-only            Only re-embed docs with missing embeddings
   --limit N              Max docs to process (default: 500)
   --collection <name>    memories | observations (default: memories)
+
+Nli options:
+  --port <n>       Listen port (default: 11435)
+  --host <addr>    Bind address (default: 127.0.0.1)
+  --model <id>     Hugging Face NLI cross-encoder (default: cross-encoder/nli-roberta-base)
+  --venv <dir>     Virtualenv location (default: ~/.fozikio/nli-venv)
+  --reinstall      Recreate the virtualenv from scratch
 
 Examples:
   fozikio init my-agent
@@ -291,6 +300,13 @@ switch (command) {
 
   case 'tools':
     runToolsCmd(rest);
+    break;
+
+  case 'nli':
+    runNliCmd(rest).catch((err) => {
+      console.error('[fozikio nli]', err instanceof Error ? err.message : err);
+      process.exit(1);
+    });
     break;
 
   case 'idapixl':

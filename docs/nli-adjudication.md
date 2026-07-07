@@ -92,12 +92,15 @@ memory, arXiv:2606.06240.)
 
 ## Running the NLI service
 
-See [scripts/nli-service/README.md](../scripts/nli-service/README.md). Short
-version:
+The service ships with the npm package:
 
 ```bash
-cd scripts/nli-service && pip install -r requirements.txt && python serve.py
+fozikio nli
 ```
 
-then set `nli.enabled: true` in config, or `CORTEX_NLI_URL=http://127.0.0.1:11435`.
-Everything degrades gracefully when the service is down.
+First run provisions a virtualenv at `~/.fozikio/nli-venv` and installs the
+requirements; later runs start immediately. Then set `nli.enabled: true` in
+config, or `CORTEX_NLI_URL=http://127.0.0.1:11435`. Everything degrades
+gracefully when the service is down.
+
+Manual setup and flags: [scripts/nli-service/README.md](../scripts/nli-service/README.md).

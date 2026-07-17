@@ -20,6 +20,19 @@ import type { LLMProvider } from '../core/llm.js';
 import { LABEL_CONCEPT } from './prompts.js';
 
 /**
+ * Strip trailing characters matching a single-character pattern. Linear in the
+ * input length — unlike an unanchored `/[...]+$/` regex, which the engine
+ * retries from every start position and so runs in O(n²) on a long run of
+ * matching characters (a polynomial-ReDoS footgun on exported, caller-supplied
+ * text). `re` must match exactly one character.
+ */
+function trimEndChars(s: string, re: RegExp): string {
+  let end = s.length;
+  while (end > 0 && re.test(s.charAt(end - 1))) end--;
+  return s.slice(0, end);
+}
+
+/**
  * Maximum length of a derived memory name, ellipsis included. Kept at 60 to
  * match the `label-concept` prompt's instruction and the CLI's 60-char display
  * clipping — a name that never exceeds 60 means those display clips (a raw
@@ -40,7 +53,7 @@ export function deriveNameHeuristic(text: string, maxLen: number = NAME_MAX_LEN)
   const firstSentence = trimmed.match(/^[^.!?]+[.!?]/)?.[0]?.trim();
   if (firstSentence && firstSentence.length <= maxLen) {
     // Drop the trailing sentence punctuation — a label is a heading, not a sentence.
-    return firstSentence.replace(/[.!?]+$/, '').trim();
+    return trimEndChars(firstSentence, /[.!?]/).trim();
   }
 
   // The whole text fits — nothing was cut, so no ellipsis.
@@ -58,10 +71,10 @@ export function deriveNameHeuristic(text: string, maxLen: number = NAME_MAX_LEN)
     // Trailing punctuation on the boundary word doesn't count toward the
     // budget — it's stripped before the ellipsis anyway — so a whole word that
     // fits isn't dropped just because a comma pushed it one character over.
-    if (next.replace(/[.,;:!?]+$/, '').length > budget) break;
+    if (trimEndChars(next, /[.,;:!?]/).length > budget) break;
     clipped = next;
   }
-  const base = clipped.replace(/[\s.,;:!?]+$/, '');
+  const base = trimEndChars(clipped, /[\s.,;:!?]/);
   // A single leading token longer than the budget has no word boundary to
   // break on — hard-cut it.
   const result = base.length > 0 ? base : trimmed.slice(0, budget).trim();
@@ -78,7 +91,7 @@ function sanitizeLabel(raw: string): string {
   label = label.replace(/^(?:title|label|name)\s*[:\-]\s*/i, '');
   // Strip wrapping quotes/backticks and any trailing sentence punctuation a
   // heading shouldn't carry (in either order — e.g. `"Label".`).
-  label = label.replace(/^[\s"'`]+/, '').replace(/[\s"'`.!?;:,]+$/, '');
+  label = trimEndChars(label.replace(/^[\s"'`]+/, ''), /[\s"'`.!?;:,]/);
   return label.replace(/\s+/g, ' ').trim();
 }
 

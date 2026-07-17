@@ -19,8 +19,13 @@
 import type { LLMProvider } from '../core/llm.js';
 import { LABEL_CONCEPT } from './prompts.js';
 
-/** Target maximum length for a derived memory name. */
-export const NAME_MAX_LEN = 64;
+/**
+ * Maximum length of a derived memory name, ellipsis included. Kept at 60 to
+ * match the `label-concept` prompt's instruction and the CLI's 60-char display
+ * clipping — a name that never exceeds 60 means those display clips (a raw
+ * `name.slice(0, 60)`) can never reintroduce a mid-word truncation.
+ */
+export const NAME_MAX_LEN = 60;
 
 /**
  * Deterministic name derivation — no LLM. Prefer the first sentence when it is
@@ -41,12 +46,26 @@ export function deriveNameHeuristic(text: string, maxLen: number = NAME_MAX_LEN)
   // The whole text fits — nothing was cut, so no ellipsis.
   if (trimmed.length <= maxLen) return trimmed;
 
-  // Truncate on a word boundary so we never end mid-word, then flag the
-  // shortening with an ellipsis. Fall back to a hard cut only for a single
-  // token longer than maxLen (no boundary to break on).
-  const clipped = trimmed.slice(0, maxLen).replace(/\s+\S*$/, '').trim();
-  const base = clipped.length > 0 ? clipped : trimmed.slice(0, maxLen).trim();
-  return `${base}…`;
+  // Accumulate whole words up to the budget, reserving one character for the
+  // ellipsis so the returned label (ellipsis included) never exceeds maxLen.
+  // Building from whole words keeps a word that ends exactly on the boundary —
+  // even when the next character is punctuation — instead of dropping it, and
+  // never leaves a partial word before the ellipsis.
+  const budget = maxLen - 1;
+  let clipped = '';
+  for (const word of trimmed.split(' ')) {
+    const next = clipped ? `${clipped} ${word}` : word;
+    // Trailing punctuation on the boundary word doesn't count toward the
+    // budget — it's stripped before the ellipsis anyway — so a whole word that
+    // fits isn't dropped just because a comma pushed it one character over.
+    if (next.replace(/[.,;:!?]+$/, '').length > budget) break;
+    clipped = next;
+  }
+  const base = clipped.replace(/[\s.,;:!?]+$/, '');
+  // A single leading token longer than the budget has no word boundary to
+  // break on — hard-cut it.
+  const result = base.length > 0 ? base : trimmed.slice(0, budget).trim();
+  return `${result}…`;
 }
 
 /**

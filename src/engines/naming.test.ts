@@ -37,7 +37,13 @@ describe('deriveNameHeuristic', () => {
     // The old raw slice cut mid-word at "...verifiable tr"; the heuristic must
     // end on a whole word instead.
     expect(name).not.toContain('verifiable tr…');
-    expect(name).toBe('Beat the frozen all-cash benchmark and build a verifiable track…');
+    expect(name).toBe('Beat the frozen all-cash benchmark and build a verifiable…');
+  });
+
+  it('keeps a whole word that ends exactly on the boundary (before punctuation)', () => {
+    // Regression: the boundary falls right after "world", whose next character
+    // is a comma. A naive trailing-token strip would drop "world" → "Hello…".
+    expect(deriveNameHeuristic('Hello world, next', 12)).toBe('Hello world…');
   });
 
   it('prefers a complete first sentence when it already fits, dropping end punctuation', () => {
@@ -48,7 +54,9 @@ describe('deriveNameHeuristic', () => {
   it('falls back to a hard cut for a single over-long token', () => {
     const token = 'x'.repeat(100);
     const name = deriveNameHeuristic(token, 10);
-    expect(name).toBe(`${'x'.repeat(10)}…`);
+    // Ellipsis is budgeted inside maxLen, so 9 chars + '…' = 10.
+    expect(name).toBe(`${'x'.repeat(9)}…`);
+    expect(name.length).toBe(10);
   });
 
   it('collapses whitespace and handles empty input', () => {

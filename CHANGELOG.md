@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- **Memory `name` is now a real label, not a raw text truncation.** All three creation paths (`goal_set`, high-salience `observe` promotion, and the dream `create` phase) previously derived `name` by slicing the definition — `goal_set` did a raw mid-word `slice(0, 60)` with no word boundary and no ellipsis, so names rendered as broken fragments (`…verifiable tr`), and the paths named identical-length memories inconsistently. A new `engines/naming.ts` centralises naming: `deriveName(text, llm)` mints a genuine short concept label via the LLM at creation time (the intended behaviour), falling back to `deriveNameHeuristic(text)` — first-sentence preference, word-boundary truncation, ellipsis on elision — whenever the LLM is unavailable, errors, or returns nothing usable. Adds the versioned `label-concept` prompt.
+
 ## [1.3.0] — 2026-07-06
 
 ### The epistemic-loops release

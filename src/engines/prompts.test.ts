@@ -39,6 +39,7 @@ describe('prompt registry', () => {
       'dream-report': 1,
       'hyde-expand': 1,
       'adjudicate-contradiction': 2,
+      'label-concept': 1,
       'salience-score': 1,
       'abstract-subsume': 1,
       'query-explain-relevance': 1,

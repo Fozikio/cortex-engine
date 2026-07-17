@@ -209,6 +209,19 @@ export const ADJUDICATE_CONTRADICTION = definePrompt<{
 
 // ─── Ingestion & reflection ───────────────────────────────────────────────────
 
+/**
+ * Concept labelling — mint a short, title-like name for a memory from its text.
+ * Used at memory-creation time (goal_set, observe promotion, dream create) so
+ * `name` reads like a heading rather than a truncated prefix of the definition.
+ */
+export const LABEL_CONCEPT = definePrompt<{ text: string }>(
+  'label-concept', 1, (p) =>
+    `Write a concise title that labels the concept below, like a note heading. ` +
+    `Use 3–8 words, at most 60 characters. Capture the core idea, not every detail. ` +
+    `Output only the title itself — no surrounding quotes, no trailing period, no preamble.\n\n` +
+    `Concept: ${p.text}`,
+);
+
 /** observe() — 4-channel salience auto-scoring when the caller omits salience. */
 export const SALIENCE_SCORE = definePrompt<{ text: string }>(
   'salience-score', 1, (p) =>
@@ -306,6 +319,7 @@ export const PROMPT_REGISTRY = [
   DREAM_REPORT,
   HYDE_EXPAND,
   ADJUDICATE_CONTRADICTION,
+  LABEL_CONCEPT,
   SALIENCE_SCORE,
   ABSTRACT_SUBSUME,
   QUERY_EXPLAIN_RELEVANCE,

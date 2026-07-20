@@ -10,6 +10,7 @@ import type { ToolDefinition } from '../mcp/tools.js';
 import type { CortexStore } from '../core/store.js';
 import { predictionErrorGate } from '../engines/memory.js';
 import { extractKeywords } from '../engines/keywords.js';
+import { deriveName } from '../engines/naming.js';
 import { adjudicateContradiction, MAX_CONFIDENCE_PENALTY } from '../engines/adjudicate.js';
 import { SALIENCE_SCORE } from '../engines/prompts.js';
 import { str, optStr, optBool, fireTriggers, fireBridges } from './_helpers.js';
@@ -251,10 +252,7 @@ export const observeTool: ToolDefinition = {
 
     // High-salience novel observation — create memory immediately
     if (gate.decision === 'novel' && salience >= 0.7) {
-      const firstSentence = text.match(/^[^.!?]+[.!?]/)?.[0]?.trim();
-      const memName = firstSentence && firstSentence.length <= 80
-        ? firstSentence
-        : text.slice(0, 60).replace(/\s+\S*$/, '');
+      const memName = await deriveName(text, ctx.llm);
 
       const category = inferCategory(text);
       // Memory creation + observation mark-processed must commit together;

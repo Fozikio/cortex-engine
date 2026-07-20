@@ -29,6 +29,7 @@ import type { EmbedProvider } from '../core/embed.js';
 import type { LLMProvider } from '../core/llm.js';
 import type { Memory, MemoryCategory, Observation, EdgeRelation, BeliefEntry, Edge } from '../core/types.js';
 import { extractKeywords } from './keywords.js';
+import { deriveName } from './naming.js';
 import { scheduleNext, newFSRSState, elapsedDaysSince } from './fsrs.js';
 import { computeFiedlerValue, detectPESaturation } from './graph-metrics.js';
 import type { PESaturationResult } from './graph-metrics.js';
@@ -474,9 +475,7 @@ async function createFromUnclustered(
         embedding = await embed.embed(obs.content);
       }
 
-      const name = obs.content.length > 60
-        ? obs.content.slice(0, 60)
-        : obs.content;
+      const name = await deriveName(obs.content, llm);
 
       // Atomic: promote the observation and mark it processed in one shot.
       // Without this, a crash between the two writes leaves an orphan memory

@@ -8,6 +8,7 @@
 
 import type { ToolDefinition, ToolContext } from '../mcp/tools.js';
 import { extractKeywords } from '../engines/keywords.js';
+import { deriveName } from '../engines/naming.js';
 
 export const goalTool: ToolDefinition = {
   name: 'goal_set',
@@ -78,7 +79,7 @@ export const goalTool: ToolDefinition = {
       ? 1 - beliefResults[0].score
       : 1.0;
 
-    const name = goalText.length > 60 ? goalText.slice(0, 60) : goalText;
+    const name = await deriveName(goalText, ctx.llm);
 
     const goalId = await store.putMemory({
       name,

@@ -41,7 +41,7 @@ Most AI agents forget everything when the session ends. `cortex-engine` fixes th
 - **Typed tool catalogue** — every cognitive tool carries `category` + `whenToUse` + `doNotUse` metadata so LLMs disambiguate cleanly. Browse with `fozikio tools` or `GET /tools`. Auto-generated reference at [docs/tools-reference.md](docs/tools-reference.md)
 - **Long-context dream consolidation** — set `strategy: long-context` to run edge discovery and abstraction in a single large LLM pass instead of N² pairwise calls; surfaces transitive patterns and cross-domain connections that the sequential approach misses
 - **Agent dispatch** — `agent_invoke` lets your agent spawn cheap, cortex-aware sub-tasks using any configured LLM. Knowledge compounds across sessions.
-- **MCP server** — 57 cognitive tools (`query`, `observe`, `believe`, `wander`, `dream`, `goal_set`, `agent_invoke`, `thread_create`, `journal_write`, `evolve`, etc.) over the Model Context Protocol
+- **MCP server** — 59 cognitive tools (`query`, `observe`, `believe`, `wander`, `dream`, `goal_set`, `agent_invoke`, `thread_create`, `journal_write`, `evolve`, etc.) over the Model Context Protocol
 
 The result: personality and expertise emerge from accumulated experience, not system prompts. An agent with 200 observations about distributed systems doesn't need to be told "you care about distributed systems." It just knows.
 
@@ -64,7 +64,7 @@ The engine includes defense-in-depth protections for deployed environments:
 | `core` | Foundational types, config, and shared utilities |
 | `engines` | Cognitive processing: memory consolidation, FSRS, graph traversal |
 | `stores` | Persistence layer — SQLite (local), Firestore (cloud), JSON (backup/migration). All implement the shared `CortexStore` interface |
-| `tools` | All 57 cognitive tool implementations (one file per tool) |
+| `tools` | All 59 cognitive tool implementations (one file per tool) |
 | `mcp` | MCP server, tool registry, and plugin loader |
 | `cognitive` | Higher-order cognitive operations (dream, wander, validate) |
 | `triggers` | Scheduled and event-driven triggers |
@@ -82,7 +82,7 @@ cd my-agent
 npx fozikio serve   # starts MCP server
 ```
 
-Your agent now has 57 cognitive tools. The generated `.mcp.json` is version-pinned and platform-aware (Windows `cmd /c` wrapper handled automatically).
+Your agent now has 59 cognitive tools. The generated `.mcp.json` is version-pinned and platform-aware (Windows `cmd /c` wrapper handled automatically).
 
 See the **[Quick Start](docs/quick-start.md)** guide for the full 5-minute setup.
 

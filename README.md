@@ -196,25 +196,25 @@ Skills are invocable workflows that agents can use via `/skill-name`.
 
 ## Built-in Capabilities (v1.0.0+)
 
-As of v1.0.0, all 57 cognitive tools are built into cortex-engine core — no separate plugin installs needed. Previously these were separate `@fozikio/tools-*` packages; they've been absorbed into the engine.
+As of v1.0.0, all 59 cognitive tools are built into cortex-engine core — no separate plugin installs needed. Previously these were separate `@fozikio/tools-*` packages; they've been absorbed into the engine.
 
 | Capability | Tools |
 |-----------|-------|
-| **Memory** | `observe`, `query`, `recall`, `wander`, `forget`, `retrieve` |
+| **Memory** | `observe`, `query`, `recall`, `wander`, `wonder`, `forget`, `retrieve`, `context`, `feedback`, `query_cross`, `federated_query` |
 | **Beliefs & Reasoning** | `believe`, `belief`, `contradict`, `speculate`, `validate`, `predict` |
 | **Threads** | `thread_create`, `thread_update`, `thread_resolve`, `threads_list` |
 | **Journaling** | `journal_write`, `journal_read` |
 | **Identity** | `evolve`, `evolution_list` |
 | **Social** | `social_read`, `social_update`, `social_draft`, `social_score` |
 | **Graph** | `neighbors`, `suggest_links`, `suggest_tags`, `link`, `graph_report` |
-| **Maintenance** | `dream`, `digest`, `reflect`, `find_duplicates`, `retrieval_audit`, `consolidation_status` |
+| **Maintenance** | `dream`, `digest`, `reflect`, `abstract`, `find_duplicates`, `retrieval_audit`, `consolidation_status` |
 | **Vitals** | `vitals_get`, `vitals_set`, `sleep_pressure` |
 | **Reasoning** | `surface`, `ruminate`, `notice`, `intention`, `resolve` |
 | **Content** | `content_create`, `content_list`, `content_update` |
 | **Ops** | `ops_append`, `ops_query`, `ops_update` |
 | **Goals** | `goal_set` |
 | **Agents** | `agent_invoke` |
-| **Stats** | `stats` |
+| **Stats** | `stats`, `query_explain` |
 
 The plugin system is still available for custom extensions — see [Plugin Docs](https://www.fozikio.com/products/plugins/).
 
@@ -224,7 +224,7 @@ The plugin system is still available for custom extensions — see [Plugin Docs]
   - [Quick Start](docs/quick-start.md) — 5-minute setup
   - [Storage backends](docs/storage-backends.md) — SQLite vs Firestore vs JSON, migration paths
   - [Concurrency model](docs/concurrency.md) — `withTransaction` contract, single-process invariant, SQLite vs Firestore semantics
-  - [Tools reference](docs/tools-reference.md) — all 57 tools by category with when-to-use guidance (auto-generated)
+  - [Tools reference](docs/tools-reference.md) — all 59 tools by category with when-to-use guidance (auto-generated)
   - [Multi-agent design](docs/multi-agent-design.md) — namespace isolation, bridges, federation
   - [Design specs](docs/superpowers/specs/) — design documents from the v1.2.0 audit-driven refactor
   - [Agent-first setup](docs/agent-first-setup.md) — Workspace initialization walkthrough

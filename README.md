@@ -41,7 +41,7 @@ Most AI agents forget everything when the session ends. `cortex-engine` fixes th
 - **Typed tool catalogue** — every cognitive tool carries `category` + `whenToUse` + `doNotUse` metadata so LLMs disambiguate cleanly. Browse with `fozikio tools` or `GET /tools`. Auto-generated reference at [docs/tools-reference.md](docs/tools-reference.md)
 - **Long-context dream consolidation** — set `strategy: long-context` to run edge discovery and abstraction in a single large LLM pass instead of N² pairwise calls; surfaces transitive patterns and cross-domain connections that the sequential approach misses
 - **Agent dispatch** — `agent_invoke` lets your agent spawn cheap, cortex-aware sub-tasks using any configured LLM. Knowledge compounds across sessions.
-- **MCP server** — 57 cognitive tools (`query`, `observe`, `believe`, `wander`, `dream`, `goal_set`, `agent_invoke`, `thread_create`, `journal_write`, `evolve`, etc.) over the Model Context Protocol
+- **MCP server** — 59 cognitive tools (`query`, `observe`, `believe`, `wander`, `dream`, `goal_set`, `agent_invoke`, `thread_create`, `journal_write`, `evolve`, etc.) over the Model Context Protocol
 
 The result: personality and expertise emerge from accumulated experience, not system prompts. An agent with 200 observations about distributed systems doesn't need to be told "you care about distributed systems." It just knows.
 
@@ -64,7 +64,7 @@ The engine includes defense-in-depth protections for deployed environments:
 | `core` | Foundational types, config, and shared utilities |
 | `engines` | Cognitive processing: memory consolidation, FSRS, graph traversal |
 | `stores` | Persistence layer — SQLite (local), Firestore (cloud), JSON (backup/migration). All implement the shared `CortexStore` interface |
-| `tools` | All 57 cognitive tool implementations (one file per tool) |
+| `tools` | All 59 cognitive tool implementations (one file per tool) |
 | `mcp` | MCP server, tool registry, and plugin loader |
 | `cognitive` | Higher-order cognitive operations (dream, wander, validate) |
 | `triggers` | Scheduled and event-driven triggers |
@@ -82,7 +82,7 @@ cd my-agent
 npx fozikio serve   # starts MCP server
 ```
 
-Your agent now has 57 cognitive tools. The generated `.mcp.json` is version-pinned and platform-aware (Windows `cmd /c` wrapper handled automatically).
+Your agent now has 59 cognitive tools. The generated `.mcp.json` is version-pinned and platform-aware (Windows `cmd /c` wrapper handled automatically).
 
 See the **[Quick Start](docs/quick-start.md)** guide for the full 5-minute setup.
 
@@ -196,25 +196,25 @@ Skills are invocable workflows that agents can use via `/skill-name`.
 
 ## Built-in Capabilities (v1.0.0+)
 
-As of v1.0.0, all 57 cognitive tools are built into cortex-engine core — no separate plugin installs needed. Previously these were separate `@fozikio/tools-*` packages; they've been absorbed into the engine.
+As of v1.0.0, all 59 cognitive tools are built into cortex-engine core — no separate plugin installs needed. Previously these were separate `@fozikio/tools-*` packages; they've been absorbed into the engine.
 
 | Capability | Tools |
 |-----------|-------|
-| **Memory** | `observe`, `query`, `recall`, `wander`, `forget`, `retrieve` |
+| **Memory** | `observe`, `query`, `recall`, `wander`, `wonder`, `forget`, `retrieve`, `context`, `feedback`, `query_cross`, `federated_query` |
 | **Beliefs & Reasoning** | `believe`, `belief`, `contradict`, `speculate`, `validate`, `predict` |
 | **Threads** | `thread_create`, `thread_update`, `thread_resolve`, `threads_list` |
 | **Journaling** | `journal_write`, `journal_read` |
 | **Identity** | `evolve`, `evolution_list` |
 | **Social** | `social_read`, `social_update`, `social_draft`, `social_score` |
 | **Graph** | `neighbors`, `suggest_links`, `suggest_tags`, `link`, `graph_report` |
-| **Maintenance** | `dream`, `digest`, `reflect`, `find_duplicates`, `retrieval_audit`, `consolidation_status` |
+| **Maintenance** | `dream`, `digest`, `reflect`, `abstract`, `find_duplicates`, `retrieval_audit`, `consolidation_status` |
 | **Vitals** | `vitals_get`, `vitals_set`, `sleep_pressure` |
 | **Reasoning** | `surface`, `ruminate`, `notice`, `intention`, `resolve` |
 | **Content** | `content_create`, `content_list`, `content_update` |
 | **Ops** | `ops_append`, `ops_query`, `ops_update` |
 | **Goals** | `goal_set` |
 | **Agents** | `agent_invoke` |
-| **Stats** | `stats` |
+| **Stats** | `stats`, `query_explain` |
 
 The plugin system is still available for custom extensions — see [Plugin Docs](https://www.fozikio.com/products/plugins/).
 
@@ -224,7 +224,7 @@ The plugin system is still available for custom extensions — see [Plugin Docs]
   - [Quick Start](docs/quick-start.md) — 5-minute setup
   - [Storage backends](docs/storage-backends.md) — SQLite vs Firestore vs JSON, migration paths
   - [Concurrency model](docs/concurrency.md) — `withTransaction` contract, single-process invariant, SQLite vs Firestore semantics
-  - [Tools reference](docs/tools-reference.md) — all 57 tools by category with when-to-use guidance (auto-generated)
+  - [Tools reference](docs/tools-reference.md) — all 59 tools by category with when-to-use guidance (auto-generated)
   - [Multi-agent design](docs/multi-agent-design.md) — namespace isolation, bridges, federation
   - [Design specs](docs/superpowers/specs/) — design documents from the v1.2.0 audit-driven refactor
   - [Agent-first setup](docs/agent-first-setup.md) — Workspace initialization walkthrough

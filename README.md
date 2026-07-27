@@ -57,6 +57,24 @@ The engine includes defense-in-depth protections for deployed environments:
 - **SQLite injection prevention** — namespace names are validated (alphanumeric only), LIMIT clauses are parameterized
 - **Secret leak prevention** — config loader warns when API keys appear in config files instead of environment variables
 
+### Known advisories
+
+`npm install @fozikio/cortex-engine` currently reports **3 moderate advisories**. All three are the same upstream issue counted at three levels of one dependency chain, and none are reachable in this package:
+
+```
+@fozikio/cortex-engine
+└── @modelcontextprotocol/sdk@1.29.0   (latest)
+    └── @hono/node-server ^1.19.9      ← GHSA-frvp-7c67-39w9
+```
+
+**What it is:** path traversal in `@hono/node-server`'s `serve-static` middleware on Windows, via an encoded backslash (`%5C`).
+
+**Why it isn't fixed:** the advisory's first patched version is `2.0.5` — a major-version bump the MCP SDK has not taken. `@modelcontextprotocol/sdk@1.29.0` is the current latest and still pins `^1.19.9`, so there is no remediation available downstream. Forcing `2.x` via an override would break the SDK's expected API.
+
+**Why it doesn't affect you:** cortex-engine never imports hono. `@hono/node-server` is pulled in only as a transitive dependency of the MCP SDK, and the MCP server here runs over **stdio transport**, which never mounts `serve-static`. The dashboard's static file serving is our own implementation ([`src/rest/server.ts`](src/rest/server.ts)), which resolves paths and verifies containment with `path.relative` before reading — explicitly handling the Windows backslash case this advisory describes.
+
+This will clear on its own once the MCP SDK adopts `@hono/node-server` 2.x. Until then, `npm audit` noise from this chain is expected and safe to ignore.
+
 ## Architecture
 
 | Module | Role |

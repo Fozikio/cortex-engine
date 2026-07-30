@@ -61,6 +61,8 @@ export const evolutionListTool: ToolDefinition = {
       session_ref: (d['session_ref'] as string | undefined) ?? null,
       created_at: d['created_at'] as string,
       applied_at: (d['applied_at'] as string | undefined) ?? null,
+      resolved_at: (d['resolved_at'] as string | undefined) ?? null,
+      note: (d['note'] as string | undefined) ?? null,
     }));
 
     return { status, count: evolutions.length, evolutions };

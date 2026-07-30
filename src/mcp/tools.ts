@@ -45,6 +45,7 @@ import { journalWriteTool } from '../tools/journal-write.js';
 import { journalReadTool } from '../tools/journal-read.js';
 import { evolveTool } from '../tools/evolve.js';
 import { evolutionListTool } from '../tools/evolution-list.js';
+import { evolutionResolveTool } from '../tools/evolution-resolve.js';
 import { agentInvokeTool } from '../tools/agent-invoke.js';
 import { goalTool } from '../tools/goal.js';
 import { queryCrossTool } from '../tools/query-cross.js';
@@ -253,6 +254,7 @@ export function createTools(): ToolDefinition[] {
     // Identity evolution
     evolveTool,
     evolutionListTool,
+    evolutionResolveTool,
 
     // Agent capabilities
     agentInvokeTool,

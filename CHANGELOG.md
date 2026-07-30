@@ -2,9 +2,24 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Service supervision** (`src/services/`) — `fozikio` now manages the two daemons the default install depends on: ollama and the bundled NLI cross-encoder. `up`, `down`, `status`, and `service <start|stop|restart|status|logs>` spawn them detached, capture output to `~/.fozikio/logs/`, track PIDs in `~/.fozikio/run/`, and wait on an HTTP probe before reporting ready. `up --watch` supervises continuously: exponential backoff, a circuit breaker after five failed restarts, and a notification hook (`FOZIKIO_NOTIFY_URL` / `FOZIKIO_NOTIFY_CMD`) so repeated restarts escalate rather than being hidden. **A service is up when its endpoint answers, not when its process exists** — a live process that has stopped responding reports `degraded`. That is the failure this exists to catch: ollama dies silently, every semantic tool then fails while ops, threads and journal keep working, and the outage reads as "cortex is fine" until a query comes back empty. Services started outside fozikio are reported as such and are never killed.
+- **`fozikio doctor`** — checks runtime, config, store, NLI wiring and both services, and prints a concrete remedy for each failure rather than only naming it. Exits 1 on any error, so it works as a cron gate. Catches the silent case where `nli.enabled` is set but no URL is reachable, which degrades adjudication to the LLM invisibly.
+- **`fozikio update`** — compares the installed version against the registry. Reports only; it never installs.
+- **Interactive dashboard** — a bare `fozikio` on a TTY opens a live view of service state and memory counts, with keys to start, stop, restart and tail logs. Falls back to help when piped.
+- **Noun-verb command tree** — `fozikio memory <health|vitals|report|anomalies|wander|maintain|digest>` and `fozikio service <verb>`. The previous flat spellings (`fozikio health`, …) remain permanent hidden aliases: not deprecated, no warning, because cron jobs and published docs invoke them directly.
+
 ### Changed
 
+- **CLI internals rebuilt on a shared framework** (`src/cli/`) — one `util.parseArgs`-based parser replaces the ten hand-rolled `parseArgs()` implementations the commands each carried, so unknown flags now fail loudly instead of being silently ignored. Colour, symbols, tables, box-drawing, spinners, prompts and menus are shared, TTY-aware, and honour `NO_COLOR` / `FORCE_COLOR` / `--no-color`. Help is generated from the same tree the router walks, so the two can no longer drift. No new runtime dependencies; `engines` stays at `>=20`.
+- **Colour is emitted directly rather than through `util.styleText`** — styleText runs its own TTY check against `process.stdout` and silently returns text unstyled when that check fails, overriding an explicit `--color` or `FORCE_COLOR` whenever output was piped. Detection now lives in one place. This also sidesteps `styleText` not existing before Node 20.12, which is below the declared engine floor.
+- **NLI provisioning helpers moved** to `src/services/nli-env.ts` so the registry, doctor and supervisor can use them without importing a command module. `bin/nli-cmd.ts` re-exports them; `fozikio nli` is unchanged.
 - **Memory `name` is now a real label, not a raw text truncation.** All three creation paths (`goal_set`, high-salience `observe` promotion, and the dream `create` phase) previously derived `name` by slicing the definition — `goal_set` did a raw mid-word `slice(0, 60)` with no word boundary and no ellipsis, so names rendered as broken fragments (`…verifiable tr`), and the paths named identical-length memories inconsistently. A new `engines/naming.ts` centralises naming: `deriveName(text, llm)` mints a genuine short concept label via the LLM at creation time (the intended behaviour), falling back to `deriveNameHeuristic(text)` — first-sentence preference, word-boundary truncation, ellipsis on elision — whenever the LLM is unavailable, errors, or returns nothing usable. Adds the versioned `label-concept` prompt.
+
+### Fixed
+
+- **CI ran `tsc` only, on ubuntu only.** The vitest suite was configured but never executed by the merge gate, and nothing ever ran on Windows — where detached spawning, `taskkill` and PID handling all differ. Adds a `Test` job across `ubuntu-latest` and `windows-latest`. The existing `Type Check` job keeps its exact name so required-status-check rules continue to match.
 
 ## [1.3.0] — 2026-07-06
 

@@ -60,7 +60,7 @@ Secondary problems in the same surface:
 src/
 ├── bin/
 │   ├── cli.ts                  # thin entry: delegates to cli/router
-│   └── commands/               # existing *-cmd.ts move here unchanged
+│   └── *-cmd.ts                # existing command files — stay put (see note)
 ├── cli/                        # NEW — CLI framework
 │   ├── router.ts               # noun-verb dispatch + alias table
 │   ├── args.ts                 # util.parseArgs wrapper + shared global flags
@@ -88,6 +88,14 @@ src/
 `src/services/` sits outside `src/cli/` deliberately: the supervisor is consumed by the TUI,
 by `up`/`down`, and (later) by `serve` to start dependencies before the MCP server boots. It
 is shared runtime, not presentation.
+
+**The existing `src/bin/*-cmd.ts` files are not relocated.** An earlier draft moved them under
+`src/bin/commands/`; that was dropped. The gain is cosmetic, while the cost is a 20-file rename
+that buries the real diff, rewrites every relative import in those files, and changes emitted
+paths — `package.json` `scripts.docs:tools` points at `dist/bin/generate-tools-doc.js`, and the
+`bin` field at `dist/bin/cli.js`. Both units are purely additive as a result: `src/cli/` and
+`src/services/` are new, and existing command files are touched only where they adopt the
+shared arg parser and UI helpers.
 
 ### Command surface
 

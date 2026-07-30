@@ -112,9 +112,13 @@ export const c = {
   gray: (t: string) => paint(t, 'gray'),
 } as const;
 
-/** Strip ANSI escapes — used for width maths and non-TTY output. */
+/**
+ * Strip ANSI escapes — used for width maths and non-TTY output.
+ * Matches any CSI sequence rather than SGR alone: cursor and erase codes are
+ * equally zero-width, and a colour-only pattern leaves them counted.
+ */
 // eslint-disable-next-line no-control-regex
-const ANSI_RE = /\x1b\[[0-9;]*m/g;
+const ANSI_RE = /\x1b\[[0-9;?]*[ -/]*[@-~]/g;
 
 export function stripAnsi(text: string): string {
   return text.replace(ANSI_RE, '');

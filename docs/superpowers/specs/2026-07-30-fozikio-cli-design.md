@@ -36,7 +36,8 @@ Secondary problems in the same surface:
 
 1. `fozikio` supervises its own runtime dependencies: start, stop, restart, probe, log, auto-restart.
 2. One command (`doctor`) diagnoses a broken install and prescribes the exact fix.
-3. Bare `fozikio` on a TTY is a live dashboard worth leaving open.
+3. Bare `fozikio` on a TTY is an interactive session worth living in, with the live
+   dashboard available as one command inside it.
 4. Every command is scriptable: `--json`, correct exit codes, degrades cleanly when piped.
 5. **No new runtime dependencies.** No `engines` bump.
 6. Every existing command keeps working unchanged.
@@ -63,20 +64,21 @@ src/
 │   └── *-cmd.ts                # existing command files — stay put (see note)
 ├── cli/                        # NEW — CLI framework
 │   ├── router.ts               # noun-verb dispatch + alias table
+│   ├── commands.ts             # the command tree + alias table
 │   ├── args.ts                 # util.parseArgs wrapper + shared global flags
 │   ├── help.ts                 # help generated from the command tree
 │   ├── ui/
-│   │   ├── color.ts            # styleText shim; TTY / NO_COLOR / FORCE_COLOR
+│   │   ├── color.ts            # SGR + TTY / NO_COLOR / FORCE_COLOR detection
 │   │   ├── symbols.ts          # ✓ ✗ ⚠ ● with ASCII fallback
 │   │   ├── box.ts              # box-drawing (extracted from health-cmd.ts)
 │   │   ├── table.ts            # aligned columns, width-aware
 │   │   ├── spinner.ts          # TTY-only; no-op when piped
 │   │   ├── prompt.ts           # readline/promises confirm + input
-│   │   ├── select.ts           # raw-mode arrow-key menu
+│   │   ├── select.ts           # filterable, windowed arrow-key menu
 │   │   └── screen.ts           # alt-screen, cursor, resize, guaranteed restore
 │   └── tui/
-│       ├── dashboard.ts        # render loop + key handling
-│       └── panels/             # services, memory, vitals, logs
+│       ├── shell.ts            # the interactive session (bare `fozikio`)
+│       └── dashboard.ts        # render loop + key handling
 └── services/                   # NEW — supervision library (not CLI-only)
     ├── registry.ts             # ServiceDef for ollama, nli
     ├── paths.ts                # ~/.fozikio/{run,logs}
@@ -100,7 +102,8 @@ shared arg parser and UI helpers.
 ### Command surface
 
 ```
-fozikio                          TUI when stdout.isTTY, else help
+fozikio                          interactive shell when stdout.isTTY, else help
+fozikio dashboard                live service + memory view
 fozikio up [--watch]             start all → wait healthy → report
 fozikio down                     stop all
 fozikio status [--json]          one-shot status; exit 0 healthy, 1 degraded
@@ -211,9 +214,51 @@ install property is preserved.
 
 `util.parseArgs` (stable since Node 20.0) replaces all 10 hand-rolled parsers.
 
-### TUI
+### Interactive shell
 
-Bare `fozikio` with `stdout.isTTY`:
+Bare `fozikio` with `stdout.isTTY` opens a session, not a monitor. A fixed
+panel of service lights answers one question; a prompt answers all of them, so
+the dashboard becomes a command *inside* the shell rather than the landing
+experience.
+
+```
+  fozikio 1.3.0
+  ● ollama  ● nli
+
+  enter a command · empty enter to browse · ? help · exit quit
+
+fozikio ›
+```
+
+- Tab completion over the command tree, plus in-session history.
+- Empty enter opens a **filterable palette**: type to narrow, arrows to move.
+- Commands run **in-process**, which forces three things: `process.exitCode` is
+  reset around every run so one failure cannot poison the shell's own status;
+  errors are caught and printed so a bad command returns to the prompt instead
+  of ending the session; and `serve`/`nli` are refused with a pointer to the
+  supervised equivalent, because both block forever and would hang the prompt.
+- The interface is consumed as an **async iterator**, not a `question` per line.
+  Rebuilding it around each line discards whatever the input stream has already
+  buffered, which silently swallows pasted multi-line input.
+
+The command tree lives in `cli/commands.ts` rather than `bin/cli.ts`, because
+the shell, help and tests all need to import it while `bin/cli.ts` is a script
+that executes on import.
+
+**Palette rendering** has two constraints that only appear once the list grows
+past a screenful:
+
+- The list is **windowed** (10 rows max, less on a short terminal). Redraw works
+  by moving the cursor up over the previous frame, so a list taller than the
+  terminal scrolls that region away and corrupts the arithmetic.
+- Printable keys **filter** rather than navigate, which rules out `j`/`k` as
+  movement keys. Key chunks are not always one character — fast typing and
+  pastes arrive as a single data event — so printable input is handled per
+  chunk, not per character.
+
+### Dashboard
+
+`fozikio dashboard`, and the `d` key inside the shell:
 
 ```
 ┌ fozikio ─────────────────────────── cortex-engine 1.3.0 ┐
@@ -293,7 +338,7 @@ Each unit is independently mergeable and leaves the CLI working.
 | 1 | `cli/args`, `cli/ui`, `cli/router`, aliases | Color, symbols, unified parsing. No behavior change. |
 | 2 | `services/` + `service`, `up`, `down`, `status` | Real supervision. Closes the outage problem. |
 | 3 | `doctor`, `update` | Prescriptive diagnosis. |
-| 4 | `cli/tui` | Bare `fozikio` dashboard. |
+| 4 | `cli/tui` | Interactive shell + dashboard behind a bare `fozikio`. |
 | 5 | CI hardening | `npm test` + windows leg. |
 
 ## Risks

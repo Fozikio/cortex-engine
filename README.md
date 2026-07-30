@@ -139,10 +139,23 @@ Source: [fozikio-dashboard](https://github.com/Fozikio/Dashboard)
 
 ### CLI
 
-Run `fozikio` with no arguments for a live dashboard, or use it directly:
+Run `fozikio` with no arguments for an interactive session — a prompt with tab
+completion, history, and a filterable command palette on an empty enter:
+
+```
+  fozikio 1.3.0
+  ● ollama  ● nli
+
+  enter a command · empty enter to browse · ? help · exit quit
+
+fozikio ›
+```
+
+Or use it directly:
 
 ```bash
 npx fozikio doctor                         # diagnose the install, with fixes
+npx fozikio dashboard                      # live service and memory view
 npx fozikio up                             # start every service, wait until ready
 npx fozikio status                         # service status (exit 1 if unhealthy)
 npx fozikio down                           # stop every service

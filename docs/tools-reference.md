@@ -2,7 +2,7 @@
 
 Auto-generated from `src/mcp/tools.ts`. Do not edit by hand — run `npm run docs:tools`.
 
-Total tools: 59. Categories: 13.
+Total tools: 60. Categories: 13.
 
 ## Index
 
@@ -11,7 +11,7 @@ Total tools: 59. Categories: 13.
 - [Beliefs](#beliefs) (4)
 - [Ops Log](#ops-log) (3)
 - [Threads](#threads) (4)
-- [Journal & Identity](#journal-identity) (4)
+- [Journal & Identity](#journal-identity) (5)
 - [Social](#social) (4)
 - [Content](#content) (3)
 - [Graph](#graph) (4)
@@ -466,7 +466,7 @@ Returns thought threads filtered by status (default 'open'), project, kind, or t
 
 ### `evolution_list`
 
-Returns identity evolution proposals filtered by status (proposed, applied, rejected, reverted). Defaults to proposed.
+Returns identity evolution proposals filtered by status (proposed, applied, rejected, reverted, superseded). Defaults to proposed.
 
 **Use when:** You want to review identity changes pending approval, or audit which have been applied.
 
@@ -474,8 +474,23 @@ Returns identity evolution proposals filtered by status (proposed, applied, reje
 
 **Arguments:**
 
-  - `status` `string` — Filter by status: proposed, applied, rejected, reverted. Default: proposed
+  - `status` `string` — Filter by status: proposed, applied, rejected, reverted, superseded (legacy). Default: proposed
   - `limit` `number` — Max results. Default: 20
+  - `namespace` `string` — Namespace (defaults to default)
+
+### `evolution_resolve`
+
+Transitions an identity evolution proposal to applied, rejected, or reverted, with an optional note. Stamps applied_at when applied. Returns the updated evolution.
+
+**Use when:** You have acted on a proposal from evolution_list — adopted the change, decided against it, or are undoing one you previously applied.
+
+**Don't use when:** You are recording a new identity change (use evolve) or reviewing what is pending (use evolution_list).
+
+**Arguments:**
+
+  - `id` `string` *(required)* — Evolution proposal ID
+  - `status` `string` *(required)* — applied = adopted into identity; rejected = declined; reverted = undoing a previously applied change
+  - `note` `string` — Why — what was adopted, or why it was declined/undone
   - `namespace` `string` — Namespace (defaults to default)
 
 ### `evolve`

@@ -7,12 +7,18 @@ import type { QueryFilter } from '../core/types.js';
 
 const COLLECTION = 'evolutions';
 
-const VALID_STATUSES = ['proposed', 'applied', 'rejected', 'reverted'] as const;
+/**
+ * `superseded` is a legacy status found in existing stores. No tool mints it —
+ * `evolution_resolve` deliberately does not offer it — but it must be listable,
+ * or those records are unreachable: an unrecognised filter silently falls back
+ * to 'proposed', so they could never be seen at all.
+ */
+const VALID_STATUSES = ['proposed', 'applied', 'rejected', 'reverted', 'superseded'] as const;
 
 export const evolutionListTool: ToolDefinition = {
   name: 'evolution_list',
   category: 'journal',
-  description: 'Returns identity evolution proposals filtered by status (proposed, applied, rejected, reverted). Defaults to proposed.',
+  description: 'Returns identity evolution proposals filtered by status (proposed, applied, rejected, reverted, superseded). Defaults to proposed.',
   whenToUse: 'You want to review identity changes pending approval, or audit which have been applied.',
   doNotUse: 'You want to record a new evolution — use evolve.',
   inputSchema: {
@@ -20,7 +26,7 @@ export const evolutionListTool: ToolDefinition = {
     properties: {
       status: {
         type: 'string',
-        description: 'Filter by status: proposed, applied, rejected, reverted. Default: proposed',
+        description: 'Filter by status: proposed, applied, rejected, reverted, superseded (legacy). Default: proposed',
       },
       limit: { type: 'number', description: 'Max results. Default: 20' },
       namespace: { type: 'string', description: 'Namespace (defaults to default)' },
@@ -61,6 +67,8 @@ export const evolutionListTool: ToolDefinition = {
       session_ref: (d['session_ref'] as string | undefined) ?? null,
       created_at: d['created_at'] as string,
       applied_at: (d['applied_at'] as string | undefined) ?? null,
+      resolved_at: (d['resolved_at'] as string | undefined) ?? null,
+      note: (d['note'] as string | undefined) ?? null,
     }));
 
     return { status, count: evolutions.length, evolutions };

@@ -177,6 +177,7 @@ export { journalWriteTool } from './tools/journal-write.js';
 export { journalReadTool } from './tools/journal-read.js';
 export { evolveTool } from './tools/evolve.js';
 export { evolutionListTool } from './tools/evolution-list.js';
+export { evolutionResolveTool } from './tools/evolution-resolve.js';
 export { goalTool } from './tools/goal.js';
 export { queryCrossTool } from './tools/query-cross.js';
 export { federatedQueryTool } from './tools/federated-query.js';

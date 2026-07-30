@@ -125,6 +125,24 @@ describe('evolution_resolve', () => {
     expect(again['error']).toMatch(/already applied/);
   });
 
+  it('lists legacy superseded records instead of silently falling back to proposed', async () => {
+    const store = new SqliteCortexStore(':memory:');
+    const ctx = makeContext(store);
+    // Written directly: no tool mints `superseded`, but real stores contain it.
+    await store.put('evolutions', {
+      change: 'a legacy record',
+      trigger: 'bulk backfill',
+      confidence: 'medium',
+      status: 'superseded',
+      created_at: new Date().toISOString(),
+    });
+    await proposeOne(ctx);
+
+    const res = await evolutionListTool.handler({ status: 'superseded' }, ctx);
+    expect(res['count']).toBe(1);
+    expect((res['evolutions'] as Record<string, unknown>[])[0]?.['change']).toBe('a legacy record');
+  });
+
   it('validates inputs and unknown ids', async () => {
     const store = new SqliteCortexStore(':memory:');
     const ctx = makeContext(store);

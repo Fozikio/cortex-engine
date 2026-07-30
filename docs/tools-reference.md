@@ -466,7 +466,7 @@ Returns thought threads filtered by status (default 'open'), project, kind, or t
 
 ### `evolution_list`
 
-Returns identity evolution proposals filtered by status (proposed, applied, rejected, reverted). Defaults to proposed.
+Returns identity evolution proposals filtered by status (proposed, applied, rejected, reverted, superseded). Defaults to proposed.
 
 **Use when:** You want to review identity changes pending approval, or audit which have been applied.
 
@@ -474,7 +474,7 @@ Returns identity evolution proposals filtered by status (proposed, applied, reje
 
 **Arguments:**
 
-  - `status` `string` — Filter by status: proposed, applied, rejected, reverted. Default: proposed
+  - `status` `string` — Filter by status: proposed, applied, rejected, reverted, superseded (legacy). Default: proposed
   - `limit` `number` — Max results. Default: 20
   - `namespace` `string` — Namespace (defaults to default)
 

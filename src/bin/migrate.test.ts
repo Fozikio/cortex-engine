@@ -205,7 +205,10 @@ describe('migrate', () => {
     expect(report.perKind.memories.srcCount).toBe(report.perKind.memories.dstCount);
     expect(report.perKind.signals.srcCount).toBe(report.perKind.signals.dstCount);
     expect(report.perKind.generic.srcCount).toBe(report.perKind.generic.dstCount);
-  });
+    // Three real SQLite stores plus a JSON hop takes ~5.5s, sitting right on
+    // vitest's 5s default — it tips over whenever the suite runs under load.
+    // Now that `npm test` gates merges, that flake would block PRs at random.
+  }, 30_000);
 
   // ─── Resume from checkpoint ────────────────────────────────────────────────
 

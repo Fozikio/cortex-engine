@@ -18,42 +18,14 @@
 
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, rmSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
+import { defaultVenvDir, findSystemPython, serviceDir, venvPython } from '../services/nli-env.js';
+import { rawFlag as parseFlag } from '../cli/args.js';
 
-/** Directory holding serve.py/requirements.txt, resolved relative to dist/bin/. */
-export function serviceDir(): string {
-  return join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'scripts', 'nli-service');
-}
-
-/** Path to the python executable inside a venv, per platform. */
-export function venvPython(venvDir: string): string {
-  return process.platform === 'win32'
-    ? join(venvDir, 'Scripts', 'python.exe')
-    : join(venvDir, 'bin', 'python');
-}
-
-/** Find a usable system Python 3 launcher. Returns null if none responds. */
-export function findSystemPython(): string[] | null {
-  const candidates: string[][] = process.platform === 'win32'
-    ? [['py', '-3'], ['python'], ['python3']]
-    : [['python3'], ['python']];
-  for (const candidate of candidates) {
-    const probe = spawnSync(candidate[0], [...candidate.slice(1), '--version'], {
-      stdio: 'pipe', shell: false,
-    });
-    if (probe.status === 0 && /Python 3/.test(String(probe.stdout) + String(probe.stderr))) {
-      return candidate;
-    }
-  }
-  return null;
-}
-
-function parseFlag(args: string[], name: string): string | undefined {
-  const idx = args.indexOf(name);
-  return idx >= 0 && idx + 1 < args.length ? args[idx + 1] : undefined;
-}
+// Provisioning helpers moved to services/nli-env.ts so the registry, doctor and
+// supervisor can use them without importing a command module. Re-exported here
+// for existing callers and tests.
+export { serviceDir, venvPython, findSystemPython };
 
 export async function runNliCmd(args: string[]): Promise<void> {
   const service = serviceDir();
@@ -64,7 +36,7 @@ export async function runNliCmd(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  const venvDir = parseFlag(args, '--venv') ?? join(homedir(), '.fozikio', 'nli-venv');
+  const venvDir = parseFlag(args, '--venv') ?? defaultVenvDir();
   const port = parseFlag(args, '--port') ?? '11435';
   const host = parseFlag(args, '--host') ?? '127.0.0.1';
   const model = parseFlag(args, '--model');

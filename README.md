@@ -139,20 +139,67 @@ Source: [fozikio-dashboard](https://github.com/Fozikio/Dashboard)
 
 ### CLI
 
+Run `fozikio` with no arguments for an interactive session — a prompt with tab
+completion, history, and a filterable command palette on an empty enter:
+
+```
+  fozikio 1.3.0
+  ● ollama  ● nli
+
+  enter a command · empty enter to browse · ? help · exit quit
+
+fozikio ›
+```
+
+Or use it directly:
+
 ```bash
+npx fozikio doctor                         # diagnose the install, with fixes
+npx fozikio dashboard                      # live service and memory view
+npx fozikio up                             # start every service, wait until ready
+npx fozikio status                         # service status (exit 1 if unhealthy)
+npx fozikio down                           # stop every service
 npx fozikio serve                          # start MCP server
-npx fozikio health                         # memory health report
-npx fozikio vitals                         # behavioral vitals and prediction error
-npx fozikio wander                         # walk through the memory graph
-npx fozikio wander --from "auth"           # seeded walk from a topic
-npx fozikio maintain fix                   # scan and repair data issues
-npx fozikio report                         # weekly quality report
-npx fozikio tools                          # browse the cognitive tool catalogue
-npx fozikio tools --category memory        # filter to a category
+```
+
+**Services.** The default setup (`--embed ollama --llm ollama`, plus NLI adjudication)
+depends on two background daemons: ollama on `:11434` and the NLI cross-encoder on
+`:11435`. When either stops answering, every semantic tool — `query`, `observe`,
+`wonder`, `dream` — fails while ops, threads and journal keep working, so the failure
+is easy to miss. `fozikio` supervises both:
+
+```bash
+npx fozikio service start nli              # start detached, wait for the probe
+npx fozikio service status                 # per-service state
+npx fozikio service logs ollama --lines 50 # tail ~/.fozikio/logs/
+npx fozikio service restart ollama
+npx fozikio up --watch                     # restart on failure, with backoff
+```
+
+A service counts as up when its HTTP endpoint answers, not when its process exists —
+a process that is alive but no longer responding reports as `degraded`, which is the
+failure this is built to catch.
+
+**Memory.**
+
+```bash
+npx fozikio memory health                  # memory health report
+npx fozikio memory vitals                  # behavioral vitals and prediction error
+npx fozikio memory wander --from "auth"    # seeded walk through the graph
+npx fozikio memory maintain fix            # scan and repair data issues
+npx fozikio memory report                  # weekly quality report
+npx fozikio tools --category memory        # browse the cognitive tool catalogue
 npx fozikio migrate --from sqlite:./cortex.db --to json:./backup.json --verify
 ```
 
-All read-only commands honour `--namespace <ns>` and `--agent <name>` flags. When called from a workspace with `.fozikio/agent.yaml`, the agent's `default_namespace` is picked up automatically — no flag needed.
+The pre-`memory` spellings (`fozikio health`, `fozikio vitals`, …) still work and are
+not deprecated — existing scripts need no changes.
+
+Every command takes `--json` for machine-readable output and honours `NO_COLOR`;
+styling and progress indicators switch off automatically when output is piped.
+`--yes` skips confirmations for unattended use. Read-only commands honour
+`--namespace <ns>` and `--agent <name>`; in a workspace with `.fozikio/agent.yaml`,
+the agent's `default_namespace` is picked up automatically — no flag needed.
 
 ### Development
 

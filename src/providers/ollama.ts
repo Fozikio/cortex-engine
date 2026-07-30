@@ -6,7 +6,12 @@
  *
  * Defaults:
  *   embed model  — qwen3-embedding:0.6b (1024 dimensions, MRL to 32)
- *   LLM model    — qwen2.5:14b
+ *   LLM model    — qwen3:14b
+ *
+ * Thinking is disabled on every call via the native `think: false` parameter.
+ * The default model is a reasoning model, and reasoning tokens are drawn from
+ * the same `num_predict` budget as the answer — so a bounded call spends its
+ * whole budget thinking and returns an empty `response`. See generate().
  */
 
 import type { EmbedProvider } from '../core/embed.js';
@@ -16,7 +21,15 @@ import type { LLMProvider, GenerateOptions, GenerateJSONOptions } from '../core/
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-/** Strip <think>...</think> blocks from model output (qwen3, phi4-reasoning). */
+/**
+ * Strip inline <think>...</think> blocks from model output.
+ *
+ * Retained only for models that still inline their reasoning into `response`.
+ * It is NOT the defence against reasoning models on current Ollama, which
+ * returns reasoning in a separate `thinking` field that never matches this
+ * pattern — relying on it there strips nothing while the answer is already
+ * gone. `think: false` on the request is the actual defence.
+ */
 function stripThinking(text: string): string {
   return text.replace(/<think>[\s\S]*?<\/think>\s*/g, '').trim();
 }
@@ -128,6 +141,13 @@ export class OllamaLLMProvider implements LLMProvider {
       model: this.modelId,
       prompt,
       stream: false,
+      // Reasoning tokens come out of the same num_predict budget as the answer.
+      // Measured on qwen3:14b at num_predict=300: thinking consumed all 300
+      // tokens, `response` came back empty with done_reason=length, in 17.3s.
+      // The same call with think:false answered completely in 50 tokens / 3.1s.
+      // Every engine call site is bounded, so leaving this on silently empties
+      // or truncates them all.
+      think: false,
       options: {
         ...(options?.temperature !== undefined && { temperature: options.temperature }),
         ...(options?.maxTokens !== undefined && { num_predict: options.maxTokens }),
@@ -155,14 +175,18 @@ export class OllamaLLMProvider implements LLMProvider {
       systemPrompt = systemPrompt ? `${systemPrompt}\n\n${schemaInstruction}` : schemaInstruction;
     }
 
-    // Disable thinking mode for JSON calls — thinking blocks break JSON output
-    const jsonPrompt = `/no_think\n${prompt}`;
-
     const body: Record<string, unknown> = {
       model: this.modelId,
-      prompt: jsonPrompt,
+      prompt,
       stream: false,
       format: 'json',
+      // Previously a `/no_think` prompt prefix. That is the legacy qwen3 soft
+      // switch and is inert on current Ollama — measured identical to sending
+      // nothing (300 tokens into `thinking`, empty `response`) — so JSON calls
+      // were failing to parse an empty string while the comment claimed they
+      // were protected. It also leaked a literal "/no_think" line into the
+      // prompt for every model that does not implement it.
+      think: false,
       options: {
         ...(options?.temperature !== undefined && { temperature: options.temperature }),
         ...(options?.maxTokens !== undefined && { num_predict: options.maxTokens }),

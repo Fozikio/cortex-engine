@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [1.4.0] — 2026-07-30
+
+### The silent-failure release
+
+Every fix here addresses the same shape of bug: a mechanism that reported success, or reported nothing at all, while doing nothing. An identity ledger whose entries could never leave `proposed`. LLM calls that spent their whole token budget on hidden reasoning and returned an empty string. Two separate guards against exactly that, both inert — one matching a tag format the provider no longer emits, the other a soft switch the model no longer honours, sitting under a comment asserting it worked. Consolidation monitoring that read a timestamp nothing ever wrote, so a store with 3,131 processed observations was indistinguishable from one that had never consolidated at all.
+
+None of these announced themselves, and each was found by checking a mechanism against reality rather than reading its description. That is the same principle the new service supervision applies at runtime: a service is up when its endpoint answers, not when its process exists.
+
 ### Added
 
 - **Service supervision** (`src/services/`) — `fozikio` now manages the two daemons the default install depends on: ollama and the bundled NLI cross-encoder. `up`, `down`, `status`, and `service <start|stop|restart|status|logs>` spawn them detached, capture output to `~/.fozikio/logs/`, track PIDs in `~/.fozikio/run/`, and wait on an HTTP probe before reporting ready. `up --watch` supervises continuously: exponential backoff, a circuit breaker after five failed restarts, and a notification hook (`FOZIKIO_NOTIFY_URL` / `FOZIKIO_NOTIFY_CMD`) so repeated restarts escalate rather than being hidden. **A service is up when its endpoint answers, not when its process exists** — a live process that has stopped responding reports `degraded`. That is the failure this exists to catch: ollama dies silently, every semantic tool then fails while ops, threads and journal keep working, and the outage reads as "cortex is fine" until a query comes back empty. Services started outside fozikio are reported as such and are never killed.

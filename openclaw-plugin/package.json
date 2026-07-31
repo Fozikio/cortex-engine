@@ -3,6 +3,7 @@
   "version": "1.4.0",
   "description": "Persistent memory and typed cognition for OpenClaw agents. 60 cortex tools over MCP, running locally on SQLite and Ollama.",
   "license": "MIT",
+  "type": "module",
   "homepage": "https://github.com/Fozikio/cortex-engine",
   "repository": {
     "type": "git",
@@ -19,12 +20,16 @@
   ],
   "files": [
     "openclaw.plugin.json",
+    "index.mjs",
     "README.md"
   ],
   "dependencies": {
     "@fozikio/cortex-engine": "^1.4.0"
   },
   "openclaw": {
+    "extensions": [
+      "./index.mjs"
+    ],
     "compat": {
       "pluginApi": "1"
     },

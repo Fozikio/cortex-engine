@@ -19,18 +19,26 @@ openclaw plugins inspect cortex --runtime --json
 
 ## What this package is
 
-A **manifest-only** plugin. It ships `openclaw.plugin.json` and no runtime
-module: its whole job is to contribute the cortex MCP server and expose config
-for where the store and daemons live. The engine itself is the
+A thin plugin. The cortex MCP server is contributed **declaratively**, through
+the `mcpServers` block in `openclaw.plugin.json`, so `index.mjs` registers
+nothing at runtime. The engine itself is the
 [`@fozikio/cortex-engine`](https://www.npmjs.com/package/@fozikio/cortex-engine)
 dependency.
 
-> `clawhub package validate` reports one P2 warning here,
-> `package-openclaw-entry-missing`, and that is expected. The fix for it is to
-> declare `openclaw.extensions` / `openclaw.runtimeExtensions`, which are
-> entrypoints for plugins that ship runtime JavaScript. This plugin has none.
-> Declaring an entrypoint that does not exist would turn a truthful warning
-> into a broken load.
+The entry module still has to exist. OpenClaw's rule is explicit:
+
+> Runtime loading stays strict: installed plugins still need
+> `openclaw.plugin.json` and `package.json` `openclaw.extensions`. OpenClaw
+> never executes plugin code to infer missing manifest data.
+
+There is no manifest-only exemption, and `package-openclaw-entry-missing` is
+enforced at publish time rather than being advisory.
+
+`index.mjs` is plain ESM rather than TypeScript compiled to `dist/`. Declaring
+`runtimeExtensions` obliges the built artifact to exist — a declared but
+missing artifact fails install with a packaging error instead of falling back
+to source. A single `.mjs` with nothing to build cannot drift out of sync with
+its own build output.
 
 ## Configuration
 

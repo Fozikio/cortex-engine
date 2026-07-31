@@ -1,0 +1,43 @@
+{
+  "id": "cortex",
+  "name": "Cortex",
+  "description": "Persistent memory and typed cognition for OpenClaw agents. Knowledge survives across sessions: recall past decisions, track evolving beliefs, detect contradictions, and build a knowledge graph over time. 60 tools over MCP, running locally on SQLite and Ollama.",
+  "version": "1.4.0",
+  "homepage": "https://github.com/Fozikio/cortex-engine",
+  "mcpServers": {
+    "cortex": {
+      "command": "node",
+      "args": ["./node_modules/@fozikio/cortex-engine/dist/bin/serve.js"],
+      "env": {
+        "CORTEX_STORE": "sqlite",
+        "CORTEX_EMBED": "ollama",
+        "CORTEX_LLM": "ollama"
+      }
+    }
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "sqlitePath": {
+        "type": "string",
+        "description": "Absolute path to the cortex SQLite store. Leave unset to use the engine default. Point this at an existing store to attach to memory you already have - an empty or wrong path yields a store that answers every query with zero results and looks healthy rather than misconfigured."
+      },
+      "ollamaUrl": {
+        "type": "string",
+        "default": "http://localhost:11434",
+        "description": "Ollama endpoint used for embeddings and the local LLM. Cortex probes this over HTTP; a process holding the port without answering counts as down."
+      },
+      "nliUrl": {
+        "type": "string",
+        "default": "http://127.0.0.1:11435",
+        "description": "Optional NLI service for contradiction adjudication. Without it, contradict() falls back to the LLM, which is slower and less decisive."
+      },
+      "namespace": {
+        "type": "string",
+        "default": "default",
+        "description": "Memory namespace. Separate namespaces keep unrelated agents from reading each other's memories."
+      }
+    }
+  }
+}

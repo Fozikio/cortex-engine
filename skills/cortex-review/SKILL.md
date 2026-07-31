@@ -11,8 +11,15 @@ tags: [deprecated]
 This skill has been consolidated into **[cortex-engine](https://clawhub.ai/idapixl/cortex-engine)**.
 
 Install the replacement:
-```
-clawhub install @fozikio/cortex-engine
+```bash
+clawhub install idapixl/cortex-engine
 ```
 
-The new skill includes everything from cortex-review plus the full query/record workflow, pinned package versions, and source verification links.
+The ClawHub slug is `idapixl/cortex-engine`. `@fozikio/cortex-engine` is the
+**npm** package this skill depends on, which is a separate install:
+
+```bash
+npm install -g @fozikio/cortex-engine
+```
+
+The new skill includes everything from cortex-review plus the full query/record workflow, current install instructions, and source verification links.

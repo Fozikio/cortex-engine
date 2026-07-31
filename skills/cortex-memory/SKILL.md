@@ -1,6 +1,6 @@
 ---
 name: cortex-memory
-version: 1.0.0
+version: 1.1.0
 description: Persistent cognitive memory for AI agents — query, record, review, and consolidate knowledge across sessions with spreading activation, FSRS scheduling, and NLI contradiction detection.
 author: idapixl
 tags: [memory, cognition, mcp, agents, knowledge-graph, spaced-repetition, code-review, fsrs]
@@ -17,17 +17,36 @@ Persistent memory engine for AI agents. Knowledge survives across sessions — r
 This skill requires [cortex-engine](https://github.com/Fozikio/cortex-engine) running as an MCP server. Install it separately before using this skill:
 
 ```bash
-npm install @fozikio/cortex-engine@0.5.1
-# Integrity: sha512-8oIL8KenrdTdACAMSM/iqyrxx04yFE/3IfHx1dTF2439ljXhSCvULcNF5V10tH8UK7P/zuwmx3RuNynvjGi4kg==
+npm install -g @fozikio/cortex-engine
 ```
+
+> **Install the scoped package, unpinned.** The unscoped `cortex-engine` on npm is the old name and is deprecated — but old versions of it still resolve, so pinning one installs an ancient engine that works just well enough to hide the problem. Always use `@fozikio/cortex-engine`, and let it take the latest.
 
 Then initialize and start:
+
 ```bash
-npx @fozikio/cortex-engine@0.5.1 fozikio init my-agent
-npx @fozikio/cortex-engine@0.5.1  # starts MCP server
+fozikio init my-agent    # scaffold a workspace
+fozikio up               # start ollama + nli, wait until they answer
+fozikio serve            # start the MCP server (stdio)
 ```
 
+If anything goes wrong, `fozikio doctor` diagnoses the install and tells you how to fix it.
+
 Runs locally with SQLite + Ollama. No cloud accounts needed. The skill instructions below are read-only — they teach your agent how to use cortex tools, they don't execute anything.
+
+## Managing the services
+
+`cortex-engine` 1.4.0+ ships a service supervisor, so you do not have to babysit Ollama:
+
+| Command | What it does |
+|---|---|
+| `fozikio up` | start every service and wait until it actually answers |
+| `fozikio status` | service health (HTTP probe, not PID liveness); exits 1 if unhealthy |
+| `fozikio doctor` | diagnose the install and say how to fix what is broken |
+| `fozikio dashboard` | live service and memory view |
+| `fozikio down` | stop services it started |
+
+`status` and `up` use an HTTP probe rather than checking whether a process exists, because a wedged process still holds the port. They also **adopt rather than kill**: if fozikio did not start a process, it will not stop it — which matters when the Ollama desktop app or another agent already owns `:11434`.
 
 ## Core Loop
 
@@ -107,9 +126,27 @@ Review code or designs by comparing against accumulated knowledge:
 
 ## Available Tools
 
-| Category | Tools |
-|----------|-------|
-| **Read** | query, recall, predict, validate, neighbors, wander |
-| **Write** | observe, wonder, speculate, believe, reflect, digest |
-| **Ops** | ops_append, ops_query, ops_update |
-| **System** | stats, dream |
+**60 tools** across 13 categories. Run `fozikio tools` for the full list with descriptions.
+
+| Category | Count | Tools |
+|---|---|---|
+| **memory** | 11 | context, federated_query, feedback, neighbors, observe, query, query_cross, recall, retrieve, speculate, wonder |
+| **consolidation** | 5 | abstract, digest, dream, ruminate, wander |
+| **beliefs** | 4 | belief, believe, contradict, validate |
+| **ops** | 3 | ops_append, ops_query, ops_update |
+| **threads** | 4 | thread_create, thread_resolve, thread_update, threads_list |
+| **journal** | 5 | evolution_list, evolution_resolve, evolve, journal_read, journal_write |
+| **social** | 4 | social_draft, social_read, social_score, social_update |
+| **content** | 3 | content_create, content_list, content_update |
+| **graph** | 4 | link, resolve, suggest_links, suggest_tags |
+| **vitals** | 2 | vitals_get, vitals_set |
+| **agents** | 2 | agent_invoke, intention |
+| **maintenance** | 5 | find_duplicates, forget, goal_set, notice, surface |
+| **meta** | 8 | consolidation_status, graph_report, predict, query_explain, retrieval_audit, sleep_pressure, stats, suggest |
+
+### Beyond the basics
+
+- **threads** — multi-session explorations. A thread is something you want to keep thinking about, distinct from an ops log entry recording what happened.
+- **journal / evolution** — identity change over time. `evolve()` proposes a shift; `evolution_resolve()` applies, rejects, or reverts it, so the ledger reflects what was actually adopted rather than only what was suggested.
+- **beliefs** — `contradict()` adjudicates whether an observation genuinely conflicts with an existing memory (via NLI, falling back to the LLM) and records a CONTRADICTION or TENSION signal rather than silently overwriting.
+- **meta** — `sleep_pressure()` and `consolidation_status()` tell you whether `dream()` is overdue; `retrieval_audit()` and `query_explain()` show why a query returned what it did.

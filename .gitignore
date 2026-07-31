@@ -8,3 +8,7 @@ cortex.db
 demo*.gif
 demo*.yml
 terminalizer.yml
+
+# ClawHub generates skill-card.md server-side; it cannot be published directly
+# and must not be tracked here or it will drift from what ClawHub renders.
+skills/*/skill-card.md

@@ -31,10 +31,12 @@
       "./index.mjs"
     ],
     "compat": {
-      "pluginApi": "1"
+      "pluginApi": ">=2026.5.27",
+      "minGatewayVersion": "2026.5.27"
     },
     "build": {
-      "openclawVersion": "1"
+      "openclawVersion": "2026.5.27",
+      "pluginSdkVersion": "2026.5.27"
     }
   }
 }

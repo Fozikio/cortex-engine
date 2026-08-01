@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **The thought-quality gate accepted refinements that describe the memory instead of its subject.** 1.4.0 fixed the token budget that let `refine` write empty and truncated text, and that fix holds. It did not fix the failure underneath it, which was never the budget: nothing checked whether what consolidation wrote was *about* anything. Verified by running `dream` against a copy of a store that had just been repaired to zero damaged definitions — of 25 refinements, it rewrote a specific, grounded definition about SQLite-backed semantic indexes and workspace memory into "The memory concept involves rapid embedding of observations through optimized processing", and another into text that referred to its own prompt inputs as "Concept A" and "Concept B". Both were accepted.
+
+  **Grounding cannot catch this class, structurally.** This failure is a *paraphrase* of the definition it replaces, so it keeps that definition's vocabulary and scores well — the case above scored 0.32 with zero generic-marker hits. `groundingScore` measures whether a thought is derived from its evidence; it has nothing to say about whether the thought has a subject. So `assessThought` now treats self-referential meta-text openers and leaked `Concept A`/`Concept B` scaffolding as form failures, rejected unconditionally alongside truncation and markdown leakage rather than weighed against grounding.
+
+  The opener check is **anchored to the start of the text, deliberately**. A legitimate memory may quote this phrasing mid-sentence — a finding about memory corruption necessarily cites the corrupt text — and matching anywhere would stop the engine ever recording its own failure modes, which is exactly the knowledge worth keeping. The regression corpus in `thought-quality.test.ts` holds the real 2026-07-31 texts verbatim, including the legitimate row that must keep passing.
+
+  Left unfixed and worth naming: a rejected refinement leaves the existing row untouched, so a definition that is *already* meta-text stays that way. The gate stops new damage; it does not repair old.
+
 ## [1.4.0] — 2026-07-30
 
 ### The silent-failure release

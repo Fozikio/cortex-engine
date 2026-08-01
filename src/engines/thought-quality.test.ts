@@ -29,6 +29,60 @@ describe('groundingScore', () => {
   });
 });
 
+/**
+ * Regression corpus from the 2026-07-31 incident, verbatim.
+ *
+ * dream refined these two rows from specific, grounded definitions into
+ * meta-text describing "the memory concept" instead of the subject. Both were
+ * accepted by the gate as it stood. This is the same failure signature that
+ * corrupted 301 of 639 definitions before engine 1.4.0, so the texts are kept
+ * exactly as they were written rather than paraphrased into something tidier.
+ */
+const REAL_BEFORE_1 =
+  "Embedding observations now occurs in seconds due to migration from SQLite-backed semantic indexes derived from markdown, with structured reflection loops and entity-aware retrieval, as demonstrated by systems like OpenClaw's workspace memory v2 and cortex-engine's production implementation.";
+const REAL_AFTER_1 =
+  'The memory concept involves rapid embedding of observations through optimized processing, leveraging structured reflection and entity-aware retrieval, as seen in systems like OpenClaw and cortex-engine, with performance improvements achieved through migration from SQLite-backed indexes.';
+
+const REAL_AFTER_2 =
+  'The memory concept encompasses two distinct yet interconnected intellectual pursuits: a science series and a humor-focused glossary. Concept A emphasizes the capacity of the memory concept to support diverse endeavors, while Concept B explores the nature of inquiry.';
+
+describe('assessThought — self-referential meta-text (2026-07-31 regression)', () => {
+  it('rejects a refinement that defines the memory instead of the subject', () => {
+    // Grounding cannot save us here: this text is a PARAPHRASE of the very
+    // definition it replaces, so it keeps the vocabulary and scored 0.32 with
+    // zero generic-marker hits. It was accepted. That is the hole.
+    const result = assessThought(REAL_AFTER_1, { evidence: [REAL_BEFORE_1] });
+    expect(result.ok).toBe(false);
+    expect(result.reasons.join(' ')).toMatch(/describes the memory|meta/i);
+  });
+
+  it('rejects internal placeholder scaffolding leaking into stored text', () => {
+    const result = assessThought(REAL_AFTER_2, { evidence: [REAL_AFTER_2] });
+    expect(result.ok).toBe(false);
+    expect(result.reasons.join(' ')).toMatch(/placeholder|Concept A/i);
+  });
+
+  it('still accepts a legitimate memory ABOUT memory corruption', () => {
+    // The discriminator is POSITION. This row quotes the boilerplate as
+    // evidence mid-sentence; it does not open with it. A naive substring check
+    // would reject it, and rejecting it would stop dream ever recording
+    // findings about its own failures.
+    const legit =
+      'HALF THE MEMORY GRAPH IS CORRUPTED - measured, not estimated. Direct SQLite audit: 629 memories, 301 damaged. 53 were BOILERPLATE, where the definition was replaced with generic meta-text, for example "This memory phenomenon consistently occurs during the consolidation phase, reflecting its reliability and importance".';
+    const result = assessThought(legit, { evidence: [legit] });
+    expect(result.ok).toBe(true);
+  });
+
+  it('accepts a definition that merely mentions memory as its subject', () => {
+    const evidence = ['Cortex stores memories in SQLite with 1024-d embeddings.'];
+    const result = assessThought(
+      'Cortex stores memories in SQLite alongside 1024-dimensional embeddings, so retrieval needs no external vector database.',
+      { evidence },
+    );
+    expect(result.ok).toBe(true);
+  });
+});
+
 describe('assessThought', () => {
   it('accepts a grounded, complete refinement', () => {
     const result = assessThought(

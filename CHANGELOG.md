@@ -2,9 +2,17 @@
 
 ## [Unreleased]
 
+## [1.4.1] — 2026-08-01
+
+### The gate that wasn't there
+
+1.4.0 was named for silent failures, and shipped with one of its own. It fixed the token budget that let `refine` write empty and truncated definitions — that fix holds, and no truncation appeared in any verification run since. What it did not fix was the failure underneath, which was never the budget: **nothing checked whether what consolidation wrote was about anything.**
+
+The evidence is a store repaired from 301 damaged definitions down to zero, then handed to `dream` on a copy. It came back with two rows silently regressed — a specific, grounded definition about SQLite-backed semantic indexes rewritten into "The memory concept involves rapid embedding of observations through optimized processing", and another that stored its own prompt scaffolding as though `Concept A` and `Concept B` were the subject. Both passed every check the engine had.
+
 ### Fixed
 
-- **The thought-quality gate accepted refinements that describe the memory instead of its subject.** 1.4.0 fixed the token budget that let `refine` write empty and truncated text, and that fix holds. It did not fix the failure underneath it, which was never the budget: nothing checked whether what consolidation wrote was *about* anything. Verified by running `dream` against a copy of a store that had just been repaired to zero damaged definitions — of 25 refinements, it rewrote a specific, grounded definition about SQLite-backed semantic indexes and workspace memory into "The memory concept involves rapid embedding of observations through optimized processing", and another into text that referred to its own prompt inputs as "Concept A" and "Concept B". Both were accepted.
+- **The thought-quality gate accepted refinements that describe the memory instead of its subject.**
 
   **Grounding cannot catch this class, structurally.** This failure is a *paraphrase* of the definition it replaces, so it keeps that definition's vocabulary and scores well — the case above scored 0.32 with zero generic-marker hits. `groundingScore` measures whether a thought is derived from its evidence; it has nothing to say about whether the thought has a subject. So `assessThought` now treats self-referential meta-text openers and leaked `Concept A`/`Concept B` scaffolding as form failures, rejected unconditionally alongside truncation and markdown leakage rather than weighed against grounding.
 

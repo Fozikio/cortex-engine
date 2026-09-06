@@ -106,7 +106,14 @@ export type { DigestOptions, DigestResult } from './engines/digest.js';
 export { adjudicateContradiction } from './engines/adjudicate.js';
 export type { AdjudicationResult, AdjudicateOptions, ContradictionVerdict } from './engines/adjudicate.js';
 
-export { assessThought, groundingScore, GENERIC_PHRASE_MARKERS } from './engines/thought-quality.js';
+export {
+  assessThought,
+  groundingScore,
+  hasConceptPlaceholder,
+  stripMarkdownFormatting,
+  substituteConceptPlaceholders,
+  GENERIC_PHRASE_MARKERS,
+} from './engines/thought-quality.js';
 export type { ThoughtQualityOptions, ThoughtQualityResult } from './engines/thought-quality.js';
 
 export { PROMPT_REGISTRY, promptVersions } from './engines/prompts.js';

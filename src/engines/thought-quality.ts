@@ -80,6 +80,95 @@ const SELF_REFERENTIAL_OPENERS: readonly RegExp[] = [
  */
 const PLACEHOLDER_LEAK = /\bConcept\s+[A-Z]\b/;
 
+/** True when text still carries `Concept A`-style prompt scaffolding. */
+export function hasConceptPlaceholder(text: string): boolean {
+  return PLACEHOLDER_LEAK.test(text);
+}
+
+/** Global twin of PLACEHOLDER_LEAK, capturing the slot letter for substitution. */
+const PLACEHOLDER_LEAK_GLOBAL = /\bConcept\s+([A-Z])\b/g;
+
+/**
+ * Rewrite leaked `Concept A` / `Concept B` scaffolding into the names of the
+ * concepts those slots actually stood for.
+ *
+ * The `connect` phase builds its prompt with positional labels and stores the
+ * model's answer verbatim, so the labels end up in edge evidence — 82% of rows
+ * in one live store. `refine` then reads that evidence as source material and
+ * echoes the labels into definitions, where PLACEHOLDER_LEAK rejects them. The
+ * gate holds, but every rejection is a refinement thrown away, so consolidation
+ * does progressively less work while reporting success.
+ *
+ * Substituting at the boundary fixes both directions with one rule: `connect`
+ * calls it before writing evidence, and `refine` calls it on evidence written
+ * before that change, so the 2,665 already-stored rows need no migration.
+ *
+ * A slot with no name supplied is left exactly as it was — a partial map must
+ * not invent a subject. Those survivors still meet PLACEHOLDER_LEAK downstream.
+ *
+ * A NAME THAT IS ITSELF CONTAMINATED IS TREATED AS NO NAME AT ALL. Contamination
+ * propagates: a leaked definition yields a leaked name, and feeding that name
+ * back as ground truth re-contaminates the repair, leaving the row permanently
+ * unrepairable until the name is withheld. One such row was observed named
+ * `Concept A describes the agent's capacity to retain…` — a memory whose label
+ * is a prompt placeholder. Substituting it would swap one placeholder for a
+ * longer one. Withholding leaves the slot for the gate to catch instead.
+ */
+export function substituteConceptPlaceholders(
+  text: string,
+  names: Readonly<Record<string, string | undefined>>,
+): string {
+  return text.replace(PLACEHOLDER_LEAK_GLOBAL, (match, letter: string) => {
+    const name = names[letter]?.trim();
+    if (!name || PLACEHOLDER_LEAK.test(name)) return match;
+    return name;
+  });
+}
+
+/**
+ * Markdown that leaked out of the model and into text meant to be stored raw.
+ *
+ * NOT ANCHORED TO THE START, unlike the meta-text openers above. The previous
+ * check was `/^(#{1,6}\s|\*\*)/`, which caught a thought opening with `**` and
+ * missed one where the bold lands anywhere later — the shape `abstract`
+ * reliably produces:
+ *
+ *   The unifying pattern is **"Persistence through Structure"** — a principle...
+ *
+ * Five such rows were accepted in a single run, and because names are derived
+ * from definitions the asterisks propagated into the labels too. The check fired
+ * elsewhere in the same run, which is what made it look like it worked.
+ *
+ * The start-anchoring argument that governs SELF_REFERENTIAL_OPENERS does not
+ * transfer here. That one protects a memory that legitimately *quotes* meta-text
+ * while reporting a finding. A quoted `**bold**` carries no such meaning: its
+ * content survives stripping intact, so `stripMarkdownFormatting` salvages the
+ * thought rather than the gate discarding it.
+ *
+ * Paired emphasis only — a lone `*` is ordinary punctuation in prose and a lone
+ * `#` is an issue reference. Headings match at any line start, not just the
+ * first, so a multi-paragraph answer that turns into a document is caught.
+ */
+const MARKDOWN_LEAK: readonly RegExp[] = [
+  /(?:^|\n)#{1,6}\s/,
+  /(?:^|\s)(\*\*|__)\S(?:[\s\S]*?\S)?\1/,
+];
+
+/**
+ * Remove markdown emphasis and heading markers, keeping the text they wrapped.
+ *
+ * For callers that can afford to salvage rather than reject. Rejection is right
+ * for `refine`, where the previous definition survives and nothing is lost; it
+ * is expensive for `abstract`, where nothing takes the rejected row's place and
+ * a real cross-domain synthesis is discarded over its punctuation.
+ */
+export function stripMarkdownFormatting(text: string): string {
+  return text
+    .replace(/(^|\n)#{1,6}\s+/g, '$1')
+    .replace(/(^|\s)(\*\*|__)(\S(?:[\s\S]*?\S)?)\2/g, '$1$3')
+    .trim();
+}
+
 export interface ThoughtQualityOptions {
   /**
    * Texts the thought is supposed to be derived from (current definition,
@@ -163,7 +252,7 @@ export function assessThought(
   if (requireSentenceEnd && trimmed.length > 0 && !/[.!?]["')\]]?$/.test(trimmed)) {
     reasons.push('does not end with sentence punctuation (possible truncation)');
   }
-  if (/^(#{1,6}\s|\*\*)/.test(trimmed)) {
+  if (MARKDOWN_LEAK.some((re) => re.test(trimmed))) {
     reasons.push('markdown formatting leaked into thought');
   }
   if (SELF_REFERENTIAL_OPENERS.some((re) => re.test(trimmed))) {

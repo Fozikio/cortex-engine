@@ -2,6 +2,29 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **The web dashboard stopped shipping at 1.2.2 and nothing noticed for four releases.**
+
+  Checked against every published tarball: 1.0.0 and 1.2.1 each contain 8 files under `public/`; 1.2.2, 1.3.0, 1.4.0 and 1.4.1 contain none. The boundary is exactly the release that introduced OIDC trusted publishing.
+
+  `public/` is a build artefact from [Fozikio/dashboard](https://github.com/Fozikio/dashboard) — gitignored here, produced by hand. While publishing ran from a laptop the directory existed on disk, so `files: ["public"]` picked it up. Once publishing moved into `publish.yml` it began running on a fresh `actions/checkout`, where `public/` has never existed. **`npm publish` does not error on a `files` entry that is absent; it silently omits it.** Four green releases, four tarballs missing a documented feature, and a README that kept promising it.
+
+  Two changes, and deliberately not a third. `public` is dropped from `files`, because it ships nothing — it goes back in at the same time as a build step that produces it, never before. The README now describes what is actually true. **The serving path in `src/rest/server.ts` is left exactly as it is**: it is the seam a replacement plugs into, it is already correct (same-origin API, `path.relative` containment check), and deleting it would only make the next dashboard harder to attach. What a replacement needs is tracked in #59.
+
+### Added
+
+- **`npm run verify:package` — a publish preflight that fails when any `files` entry resolves to nothing.**
+
+  Wired into `publish.yml` after the build (`dist` does not exist before it) and ahead of `npm publish`. This is the check that would have turned the four silent regressions above into one red build.
+
+  It covers every entry rather than the one that already broke: `hooks`, `skills`, `reflex-rules` and `scripts/nli-service` could each vanish from a tarball the same way, and today the only way to find out would be a user reporting it against a published version. A directory that exists but is empty counts as missing, since it packs to the same nothing. Glob entries are left to npm — reimplementing its matching rules would risk a check that disagrees with the packer, which is worse than no check — and any skip is printed rather than passing quietly.
+
+### Changed
+
+- The README's hono `serve-static` advisory note attributed the hardened static-file implementation to "the dashboard". The reasoning is unchanged and now stronger: the published package ships no static assets at all, so the path is inert unless a user supplies their own.
+
+
 ## [1.4.1] — 2026-08-01
 
 ### The gate that wasn't there

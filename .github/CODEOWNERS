@@ -1,0 +1,9 @@
+# Default owner for everything in this repository.
+* @idapixl
+
+# Anything that can ship code to consumers or alter the trust boundary
+# warrants explicit review even when the diff looks mechanical.
+/.github/workflows/  @idapixl
+/Dockerfile          @idapixl
+/scripts/            @idapixl
+/package.json        @idapixl

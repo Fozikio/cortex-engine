@@ -15,7 +15,8 @@
     "serve": "node dist/bin/serve.js",
     "test": "node --experimental-vm-modules node_modules/vitest/vitest.mjs run",
     "test:watch": "node --experimental-vm-modules node_modules/vitest/vitest.mjs",
-    "docs:tools": "node dist/bin/generate-tools-doc.js"
+    "docs:tools": "node dist/bin/generate-tools-doc.js",
+    "verify:package": "node scripts/verify-package-files.mjs"
   },
   "engines": {
     "node": ">=20"
@@ -96,7 +97,6 @@
   },
   "files": [
     "dist",
-    "public",
     "hooks",
     "skills",
     "reflex-rules",

@@ -71,7 +71,7 @@ The engine includes defense-in-depth protections for deployed environments:
 
 **Why it isn't fixed:** the advisory's first patched version is `2.0.5` — a major-version bump the MCP SDK has not taken. `@modelcontextprotocol/sdk@1.29.0` is the current latest and still pins `^1.19.9`, so there is no remediation available downstream. Forcing `2.x` via an override would break the SDK's expected API.
 
-**Why it doesn't affect you:** cortex-engine never imports hono. `@hono/node-server` is pulled in only as a transitive dependency of the MCP SDK, and the MCP server here runs over **stdio transport**, which never mounts `serve-static`. The dashboard's static file serving is our own implementation ([`src/rest/server.ts`](src/rest/server.ts)), which resolves paths and verifies containment with `path.relative` before reading — explicitly handling the Windows backslash case this advisory describes.
+**Why it doesn't affect you:** cortex-engine never imports hono. `@hono/node-server` is pulled in only as a transitive dependency of the MCP SDK, and the MCP server here runs over **stdio transport**, which never mounts `serve-static`. The REST server's static file serving is our own implementation ([`src/rest/server.ts`](src/rest/server.ts)), which resolves paths and verifies containment with `path.relative` before reading — explicitly handling the Windows backslash case this advisory describes. It also serves nothing by default: the published package ships no static assets, so the path is inert unless you supply your own.
 
 This will clear on its own once the MCP SDK adopts `@hono/node-server` 2.x. Until then, `npm audit` noise from this chain is expected and safe to ignore.
 
@@ -89,7 +89,6 @@ This will clear on its own once the MCP SDK adopts `@hono/node-server` 2.x. Unti
 | `bridges` | Adapters for external services and APIs |
 | `providers` | Embedding and LLM provider implementations |
 | `bin` | Entry points: `serve.js` (HTTP + MCP), `cli.js` (admin CLI) |
-| `public` | Built-in web dashboard (served automatically with `--rest`) |
 
 ## Quick Start
 
@@ -120,22 +119,22 @@ The fastest path: open an AI agent in an empty directory and say *"set up a cort
 
 ### Dashboard
 
-cortex-engine ships with a built-in web dashboard. Start the REST server and open the URL in your browser:
+**No dashboard currently ships with the package.** Releases 1.0.0 through 1.2.1 bundled one; it stopped being included at 1.2.2 when publishing moved to CI, and it is not coming back in its old form — see [#59](https://github.com/Fozikio/cortex-engine/issues/59) for what a replacement needs.
+
+The REST server still *serves* one. On startup it looks for `public/index.html` next to `dist/`, and if it finds it, serves that directory as a single-page app — assets first, `index.html` as the fallback route, with `/api/*` and `/health` reserved. Static assets bypass auth; the API calls the page makes do not. So you can drop any built front-end into `public/` and it will be served from the same origin as the API:
 
 ```bash
 npx fozikio serve --rest --port 3000
-# open http://localhost:3000
+# with public/index.html present, open http://localhost:3000
 ```
 
-The dashboard shows your agent's stats, threads, ops log, memories, concepts, and observations — no separate install required. It auto-detects its API from the same origin it's served from.
-
-If auth is enabled (`CORTEX_API_TOKEN`), the dashboard loads without auth but API calls require a token. Set it via localStorage:
+If auth is enabled (`CORTEX_API_TOKEN`), a page served this way loads without auth but its API calls need a token. The old dashboard read one from localStorage:
 
 ```js
 localStorage.setItem("cortex-settings", JSON.stringify({ token: "your-token" }));
 ```
 
-Source: [fozikio-dashboard](https://github.com/Fozikio/Dashboard)
+The previous UI's source is [Fozikio/dashboard](https://github.com/Fozikio/dashboard) — a Vite/React build that still compiles, but predates the REST and CLI changes in 1.3.0 and 1.4.0 and has not been re-integrated.
 
 ### CLI
 

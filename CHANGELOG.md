@@ -18,7 +18,7 @@
 
   Wired into `publish.yml` after the build (`dist` does not exist before it) and ahead of `npm publish`. This is the check that would have turned the four silent regressions above into one red build.
 
-  It covers every entry rather than the one that already broke: `hooks`, `skills`, `reflex-rules` and `scripts/nli-service` could each vanish from a tarball the same way, and today the only way to find out would be a user reporting it against a published version. A directory that exists but is empty counts as missing, since it packs to the same nothing. Glob entries are left to npm — reimplementing its matching rules would risk a check that disagrees with the packer, which is worse than no check — and any skip is printed rather than passing quietly.
+  It covers every entry rather than the one that already broke: `hooks`, `skills`, `reflex-rules` and `scripts/nli-service` could each vanish from a tarball the same way, and today the only way to find out would be a user reporting it against a published version. A directory that contains no files at any depth counts as missing, since it packs to the same nothing — checking only the immediate entries would wave through a tree of empty subdirectories, which is the guard's own failure mode. Glob entries are left to npm — reimplementing its matching rules would risk a check that disagrees with the packer, which is worse than no check — and any skip is printed rather than passing quietly.
 
 ### Changed
 

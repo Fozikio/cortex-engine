@@ -44,6 +44,26 @@ if (entries.length === 0) {
  */
 const isGlob = (entry) => /[*?[\]{}!]/.test(entry);
 
+/**
+ * Does this directory contain at least one file at any depth?
+ *
+ * Checking only the immediate entries is not enough: a directory holding
+ * nothing but empty subdirectories reads as non-empty, yet packs to nothing —
+ * which is the very outcome this script exists to catch, so the shallow check
+ * would have let the guard's own failure mode through. Anything that is not a
+ * directory counts as a file; a symlink packs as something, so it counts too.
+ *
+ * Returns on the first file found rather than walking the whole tree — `dist`
+ * has 596 files and the answer is settled by the first one.
+ */
+function containsFile(dir) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) return true;
+    if (containsFile(join(dir, entry.name))) return true;
+  }
+  return false;
+}
+
 const missing = [];
 const empty = [];
 const skipped = [];
@@ -60,9 +80,9 @@ for (const entry of entries) {
     continue;
   }
 
-  // A directory that exists but holds nothing packs to nothing, which is the
-  // same outcome as its being absent.
-  if (statSync(target).isDirectory() && readdirSync(target).length === 0) {
+  // A directory that exists but holds no files at any depth packs to nothing,
+  // which is the same outcome as its being absent.
+  if (statSync(target).isDirectory() && !containsFile(target)) {
     empty.push(entry);
   }
 }
@@ -79,7 +99,7 @@ if (missing.length === 0 && empty.length === 0) {
 
 console.error('\npackage.json `files` promises paths this tree cannot deliver:\n');
 for (const entry of missing) console.error(`  missing:            ${entry}`);
-for (const entry of empty) console.error(`  present but empty:  ${entry}`);
+for (const entry of empty) console.error(`  contains no files:  ${entry}`);
 console.error(
   '\nnpm would omit these from the tarball without failing the publish.\n' +
     'Either produce them before packing, or drop them from `files`.\n',

@@ -5,6 +5,8 @@
 #
 # Connect to Claude Code MCP:
 #   Add to .mcp.json: { "cortex": { "url": "http://localhost:8080" } }
+#
+# Requires CORTEX_API_TOKEN in the environment; requests send it as x-cortex-token.
 
 services:
   cortex:
@@ -18,6 +20,9 @@ services:
       NODE_ENV: development
       CORS_ORIGINS: "*"
       CORTEX_INSTANCE_NAME: cortex
+      # The REST server refuses to start without a token (or --allow-unauthenticated).
+      # Export CORTEX_API_TOKEN before `docker compose up`.
+      CORTEX_API_TOKEN: ${CORTEX_API_TOKEN:?set CORTEX_API_TOKEN before starting}
     depends_on:
       - firestore
     restart: unless-stopped

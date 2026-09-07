@@ -36,7 +36,9 @@ const useRest = process.argv.includes('--rest');
 const portIdx = process.argv.indexOf('--port');
 const restPort = portIdx !== -1 && process.argv[portIdx + 1]
   ? parseInt(process.argv[portIdx + 1], 10)
-  : 3000;
+  : process.env['PORT']
+    ? parseInt(process.env['PORT'], 10)
+    : 3000;
 const tokenIdx = process.argv.indexOf('--token');
 const restToken = tokenIdx !== -1 && process.argv[tokenIdx + 1]
   ? process.argv[tokenIdx + 1]
@@ -44,7 +46,7 @@ const restToken = tokenIdx !== -1 && process.argv[tokenIdx + 1]
 const hostIdx = process.argv.indexOf('--host');
 const restHost = hostIdx !== -1 && process.argv[hostIdx + 1]
   ? process.argv[hostIdx + 1]
-  : undefined;
+  : process.env['HOST'];
 const allowUnauthenticated = process.argv.includes('--allow-unauthenticated');
 const allowCorsLocalhost = process.argv.includes('--allow-cors-localhost');
 

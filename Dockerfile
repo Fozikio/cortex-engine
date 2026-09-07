@@ -33,4 +33,8 @@ RUN npm ci --omit=dev
 COPY --from=builder /app/dist ./dist
 
 EXPOSE 8080
-CMD ["node", "dist/bin/serve.js"]
+# The image exists to serve the REST API (EXPOSE 8080 / docker-compose maps 8080).
+# Without --rest this starts the stdio MCP server, which binds no port.
+# HOST/PORT are read by serve.js; 0.0.0.0 is required to be reachable outside the container.
+ENV HOST=0.0.0.0
+CMD ["node", "dist/bin/serve.js", "--rest"]

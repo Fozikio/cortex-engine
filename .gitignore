@@ -4,7 +4,9 @@ public/
 *.tsbuildinfo
 .env
 .env.*
-cortex.db
+# Glob covers the -wal and -shm sidecars. `cortex.db` alone did not, which
+# is how both were committed in 7e95ee9 and stayed tracked.
+cortex.db*
 demo*.gif
 demo*.yml
 terminalizer.yml

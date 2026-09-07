@@ -3,7 +3,13 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { assessThought, groundingScore } from './thought-quality.js';
+import {
+  assessThought,
+  groundingScore,
+  hasConceptPlaceholder,
+  stripMarkdownFormatting,
+  substituteConceptPlaceholders,
+} from './thought-quality.js';
 
 const EVIDENCE = [
   'The auth service issues JWT tokens with a 15 minute expiry.',
@@ -154,5 +160,143 @@ describe('assessThought', () => {
     const loose = assessThought(abstraction, { evidence: EVIDENCE, minGrounding: 0.1 });
     expect(strict.ok).toBe(false);
     expect(loose.ok).toBe(true);
+  });
+});
+
+
+/**
+ * Regression corpus for the mid-text markdown leak (issue #54), verbatim from
+ * the dream run that accepted all five rows below. The gate as it stood was
+ * `/^(#{1,6}\s|\*\*)/` — anchored to position 0, so bold anywhere after the
+ * first character passed. It fired elsewhere in the same run, which is exactly
+ * what made it look like a working check.
+ */
+const REAL_ABSTRACT_1 =
+  'The unifying pattern is **"Persistence through Structure"** — a principle where organized, hierarchical frameworks outlast the material they organize.';
+const REAL_ABSTRACT_2 =
+  'The deeper connection is **"Boundary Translation Principle"** — a pattern that emphasizes the necessity of explicit contracts at every interface.';
+
+describe('assessThought — mid-text markdown leak (issue #54)', () => {
+  it('rejects bold that appears after the first character', () => {
+    for (const text of [REAL_ABSTRACT_1, REAL_ABSTRACT_2]) {
+      const result = assessThought(text, { evidence: [text], minGrounding: 0.1 });
+      expect(result.ok).toBe(false);
+      expect(result.reasons.some((r) => r.includes('markdown'))).toBe(true);
+    }
+  });
+
+  it('rejects underscore emphasis mid-text', () => {
+    const result = assessThought(
+      'Refresh tokens rotate on every use, which the ops log records as __rotation events__ for audit.',
+      { evidence: EVIDENCE },
+    );
+    expect(result.ok).toBe(false);
+    expect(result.reasons.some((r) => r.includes('markdown'))).toBe(true);
+  });
+
+  it('rejects a heading on any line, not just the first', () => {
+    const result = assessThought(
+      'Tokens rotate on every use in the auth service.\n\n## Rotation failures\n\nFailures are logged to ops.',
+      { evidence: EVIDENCE },
+    );
+    expect(result.ok).toBe(false);
+    expect(result.reasons.some((r) => r.includes('markdown'))).toBe(true);
+  });
+
+  it('does not fire on a lone asterisk or a hash used as an issue reference', () => {
+    // Widening the check from position 0 to anywhere buys precision problems if
+    // it treats ordinary punctuation as formatting. Only PAIRED emphasis counts.
+    const result = assessThought(
+      'Token rotation was fixed in issue #52; the 3 * 5 retry matrix in the auth service still logs every failure to ops.',
+      { evidence: EVIDENCE },
+    );
+    expect(result.reasons.some((r) => r.includes('markdown'))).toBe(false);
+  });
+});
+
+describe('stripMarkdownFormatting', () => {
+  it('keeps the wrapped text and drops the markers', () => {
+    expect(stripMarkdownFormatting(REAL_ABSTRACT_1)).toBe(
+      'The unifying pattern is "Persistence through Structure" — a principle where organized, hierarchical frameworks outlast the material they organize.',
+    );
+  });
+
+  it('produces text the gate then accepts', () => {
+    // This is the whole point for `abstract`: a rejected abstraction leaves
+    // nothing in its place, so formatting alone must not cost the synthesis.
+    const stripped = stripMarkdownFormatting(REAL_ABSTRACT_1);
+    const result = assessThought(stripped, { evidence: [REAL_ABSTRACT_1], minGrounding: 0.1 });
+    expect(result.ok).toBe(true);
+  });
+
+  it('strips heading markers without eating the heading text', () => {
+    expect(stripMarkdownFormatting('## Rotation failures\n\nFailures are logged.')).toBe(
+      'Rotation failures\n\nFailures are logged.',
+    );
+  });
+
+  it('leaves unformatted text byte-identical', () => {
+    const clean = 'Refresh tokens rotate on every use and are stored hashed in SQLite.';
+    expect(stripMarkdownFormatting(clean)).toBe(clean);
+  });
+});
+
+describe('substituteConceptPlaceholders (issue #53)', () => {
+  it('rewrites the prompt labels into the names they stood for', () => {
+    expect(
+      substituteConceptPlaceholders(
+        'Concept A provides the storage layer that Concept B queries for retrieval.',
+        { A: 'SQLite store', B: 'spread activation' },
+      ),
+    ).toBe('SQLite store provides the storage layer that spread activation queries for retrieval.');
+  });
+
+  it('leaves a slot alone when no name is supplied', () => {
+    // A partial map must not invent a subject; the survivor is still caught by
+    // the placeholder gate downstream rather than being silently stored.
+    const out = substituteConceptPlaceholders(
+      'Concept A extends Concept B.',
+      { A: 'FSRS scheduling' },
+    );
+    expect(out).toBe('FSRS scheduling extends Concept B.');
+    expect(hasConceptPlaceholder(out)).toBe(true);
+  });
+
+  it('repairs evidence that would otherwise poison a refinement', () => {
+    // The live-store shape: 82% of edge evidence carried these labels, refine
+    // read them back as source material, and the model echoed them into the
+    // definition — where the gate threw the whole refinement away.
+    const evidence = 'Concept A emphasizes retention capacity, while Concept B explores inquiry.';
+    expect(hasConceptPlaceholder(evidence)).toBe(true);
+    const repaired = substituteConceptPlaceholders(evidence, {
+      A: 'semantic memory',
+      B: 'diachronic analysis',
+    });
+    expect(hasConceptPlaceholder(repaired)).toBe(false);
+    expect(repaired).toContain('semantic memory');
+    expect(repaired).toContain('diachronic analysis');
+  });
+
+  it('does not touch a capitalised word that merely follows "Concept"', () => {
+    const text = 'Concept Analysis is a documented technique in the retrieval literature.';
+    expect(substituteConceptPlaceholders(text, { A: 'nope' })).toBe(text);
+  });
+
+  it('withholds a replacement name that is itself contaminated', () => {
+    // Contamination propagates: a leaked definition yields a leaked name, and
+    // feeding that name back as ground truth re-contaminates the repair. One
+    // live row was named `Concept A describes the agent's capacity to retain...`.
+    // Substituting it would swap one placeholder for a longer one.
+    const out = substituteConceptPlaceholders('Concept A extends Concept B.', {
+      A: "Concept A describes the agent's capacity to retain observations",
+      B: 'FSRS scheduling',
+    });
+    expect(out).toBe('Concept A extends FSRS scheduling.');
+    expect(hasConceptPlaceholder(out)).toBe(true);
+  });
+
+  it('leaves text with no scaffolding untouched', () => {
+    const clean = 'The SQLite store backs retrieval with 1024-dimensional embeddings.';
+    expect(substituteConceptPlaceholders(clean, { A: 'x', B: 'y' })).toBe(clean);
   });
 });

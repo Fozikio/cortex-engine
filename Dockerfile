@@ -15,13 +15,14 @@ COPY tsconfig.json ./
 COPY src/ ./src/
 RUN npm run build
 
-FROM node:24-slim AS runtime
+# Production dependencies are compiled in their own stage that still has the
+# toolchain, so the runtime image can copy the built node_modules and never
+# install a compiler at all. Purging the toolchain in a later RUN would not
+# help: image layers are additive, so the packages would still ship inside
+# the earlier layer even after being removed.
+FROM node:24-slim AS prod-deps
 WORKDIR /app
 
-ENV NODE_ENV=production
-ENV PORT=8080
-
-# Rebuild native addons in the runtime stage
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     make \
@@ -30,7 +31,27 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY package.json package-lock.json* ./
 RUN npm ci --omit=dev
+
+FROM node:24-slim AS runtime
+WORKDIR /app
+
+ENV NODE_ENV=production
+ENV PORT=8080
+
+# No python3/make/g++ here. The compiled addon arrives prebuilt from
+# prod-deps; both stages share the same base image, so the binary matches.
+COPY package.json package-lock.json* ./
+COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
+
+# The SQLite store defaults to a relative ./cortex.db (core/config.ts), which
+# resolves to /app at runtime — so /app must be writable by the running user.
+# Without this chown, dropping to `node` turns the default configuration into
+# a startup failure.
+RUN chown -R node:node /app
+
+# Drop root. node:24-slim ships an unprivileged `node` user (uid 1000).
+USER node
 
 EXPOSE 8080
 # The image exists to serve the REST API (EXPOSE 8080 / docker-compose maps 8080).

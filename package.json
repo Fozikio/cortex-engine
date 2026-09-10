@@ -24,7 +24,7 @@
   "dependencies": {
     "@fozikio/reflex": "^0.2.0",
     "@modelcontextprotocol/sdk": "^1.30.0",
-    "better-sqlite3": "^11.7.0",
+    "better-sqlite3": "^13.0.3",
     "yaml": "^2.7.0"
   },
   "peerDependencies": {

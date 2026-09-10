@@ -15,7 +15,9 @@ activate the commit-msg lint hook.
 npm run build        # tsc → dist/
 npm run dev          # tsc --watch
 npm run test         # vitest (requires --experimental-vm-modules)
+npm run test:watch   # vitest watch mode
 npm run serve        # Start MCP server (node dist/bin/serve.js)
+npm run docs:tools   # Regenerate docs/tools-reference.md from dist/ (build first)
 ```
 
 ## Architecture
@@ -24,13 +26,16 @@ npm run serve        # Start MCP server (node dist/bin/serve.js)
 src/
 ├── bin/            # CLI entry points (serve.js, cortex-engine CLI)
 ├── bridges/        # Cross-namespace bridging
+├── cli/            # CLI command tree, arg parsing, TUI
 ├── core/           # Config, types, utilities
 ├── engines/        # Cognitive processing, memory consolidation, FSRS, dream pipeline
+├── federation/     # Peer discovery via sigil, cross-instance queries
 ├── mcp/            # MCP server with 27+ cognitive tools
 ├── namespace/      # Multi-namespace management
 ├── plugins/        # Plugin system
 ├── providers/      # LLM/embedding providers (Anthropic, OpenAI, Vertex, HuggingFace)
 ├── rest/           # REST API server
+├── services/       # Local daemon supervisor, probe, watchdog
 ├── stores/         # Storage backends
 │   ├── sqlite.ts   # Local SQLite (better-sqlite3)
 │   └── firestore.ts # Cloud Firestore
@@ -38,6 +43,14 @@ src/
 ├── triggers/       # Event triggers
 └── index.ts        # Main entry + re-exports
 ```
+
+Root dirs outside `src/`: `reflex-rules/` (reflex YAML rules), `skills/` (Claude Code skills), `hooks/` (shell hooks), `openclaw-plugin/` (OpenClaw integration), `examples/` (example CLAUDE.md, session flow).
+
+## Docs
+
+- `docs/tools-reference.md` — generated MCP tool reference (`npm run docs:tools`)
+- `docs/storage-backends.md` — SQLite vs Firestore backend contract
+- `docs/concurrency.md` — transaction and locking rules (see below)
 
 ## Key Exports
 

@@ -2,6 +2,57 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **The markdown gate was anchored to the start of the text, so `abstract` leaked bold into definitions and names.** (#54)
+
+  The check was `/^(#{1,6}\s|\*\*)/`. It caught a thought that *opens* with `**` and missed one where the bold lands anywhere later — which is the shape `abstract` reliably produces: `The unifying pattern is **"Persistence through Structure"** — a principle where...`. Five such rows were accepted in a single run. Because names are derived from definitions, the asterisks propagated into the label too, so the stored `name` was literally `The unifying pattern is **"Persistence through Structure"**`. The gate did fire elsewhere in the same run, which is exactly what made it look like a working check.
+
+  It now matches **paired** emphasis anywhere and headings at any line start. Paired only, deliberately: a lone `*` is ordinary punctuation and a lone `#` is an issue reference, and widening a check from position 0 to anywhere is worth nothing if it starts rejecting prose.
+
+  The start-anchoring argument that governs the meta-text openers does not transfer here, and the difference is worth naming. That rule protects a memory that legitimately *quotes* meta-text while reporting a finding — matching anywhere would stop dream ever recording its own failure modes. A quoted `**bold**` carries no such meaning: the content survives stripping intact. So `abstract` now **strips rather than rejects**, via the new `stripMarkdownFormatting`. A rejected refinement is cheap because the previous definition survives; a rejected abstraction leaves nothing in its place, and discarding a real cross-domain synthesis over its punctuation is the more expensive error. `refine` still rejects.
+
+- **`connect` wrote `Concept A`/`Concept B` into edge evidence, and `refine` read it back as source material.** (#53)
+
+  The connect prompt labels its inputs positionally and the model's answer was stored verbatim — 2,665 of 3,259 edges (82%) in one live store. `refine` consumes edge evidence as source material, so the model echoed the labels straight into definitions, where the placeholder gate added in 1.4.1 rejected the whole refinement. The gate held; that was never in doubt. The cost landed as a rejection rate: 6 of 8 rejections in one 30-row dream run were placeholder leaks. Every rejection is a refinement thrown away, so consolidation does progressively less useful work while reporting success.
+
+  Both directions are now fixed by one rule. `connect` substitutes the concepts' real names before writing evidence, and `refine` applies the same substitution to evidence written before this change — so the 2,665 existing rows are repaired on read and **no backfill or migration is needed**. `getEdgesFrom` always returns the refined memory as the source, which is slot A; only a row that actually carries a placeholder pays for the slot-B lookup, and that count trends to zero as the store fills with edges written by the fixed phase. A slot with no name available is left exactly as it was — a partial map must not invent a subject, and the survivor still meets the placeholder gate downstream rather than being silently stored. A name that is *itself* contaminated counts as no name at all, which is the part that matters for the rows already damaged: contamination propagates, a leaked definition yields a leaked name, and feeding that name back as ground truth re-contaminates the repair — one live row was named `Concept A describes the agent's capacity to retain…`. Substituting it would swap one placeholder for a longer one, so it is withheld and the gate catches the row instead.
+
+- **`connect` reported zero edges for a phase that had failed outright.**
+
+  `_safe.ts` exists to replace "inline `.catch(() => fallback)` patterns that previously hid store failures behind zero-result returns", and `safeStoreRead` was threaded through cluster, refine, hindsight, fiedler and pe-saturation when it was written. `connect` was never converted: three bare catches returned `{ edges_discovered: 0 }`, and the per-pair and per-edge handlers dropped their errors entirely without touching the counter. A connect phase that failed completely was indistinguishable from one that honestly found nothing, and `DreamResult.failures` under-reported by exactly the amount that mattered. Both variants now route through `safeStoreRead` / `dreamFailure`. The same one-line omission in `abstract`'s outer handler is fixed alongside it.
+
+  This is the bug class 1.4.0 was named for, still sitting in the phase that release did not reach.
+
+- **The web dashboard stopped shipping at 1.2.2 and nothing noticed for four releases.**
+
+  Checked against every published tarball: 1.0.0 and 1.2.1 each contain 8 files under `public/`; 1.2.2, 1.3.0, 1.4.0 and 1.4.1 contain none. The boundary is exactly the release that introduced OIDC trusted publishing.
+
+  `public/` is a build artefact from [Fozikio/dashboard](https://github.com/Fozikio/dashboard) — gitignored here, produced by hand. While publishing ran from a laptop the directory existed on disk, so `files: ["public"]` picked it up. Once publishing moved into `publish.yml` it began running on a fresh `actions/checkout`, where `public/` has never existed. **`npm publish` does not error on a `files` entry that is absent; it silently omits it.** Four green releases, four tarballs missing a documented feature, and a README that kept promising it.
+
+  Two changes, and deliberately not a third. `public` is dropped from `files`, because it ships nothing — it goes back in at the same time as a build step that produces it, never before. The README now describes what is actually true. **The serving path in `src/rest/server.ts` is left exactly as it is**: it is the seam a replacement plugs into, it is already correct (same-origin API, `path.relative` containment check), and deleting it would only make the next dashboard harder to attach. What a replacement needs is tracked in #59.
+
+### Added
+
+- **`npm run verify:package` — a publish preflight that fails when any `files` entry resolves to nothing.**
+
+  Wired into `publish.yml` after the build (`dist` does not exist before it) and ahead of `npm publish`. This is the check that would have turned the four silent regressions above into one red build.
+
+  It covers every entry rather than the one that already broke: `hooks`, `skills`, `reflex-rules` and `scripts/nli-service` could each vanish from a tarball the same way, and today the only way to find out would be a user reporting it against a published version. A directory that contains no files at any depth counts as missing, since it packs to the same nothing — checking only the immediate entries would wave through a tree of empty subdirectories, which is the guard's own failure mode. Glob entries are left to npm — reimplementing its matching rules would risk a check that disagrees with the packer, which is worse than no check — and any skip is printed rather than passing quietly.
+
+### Security
+
+- **Cleared all 5 open advisories: `fast-uri`, `hono`, `brace-expansion`, `nanoid`, `qs`.** `npm audit` reports 0.
+
+  Dependabot's open group PR raised `fast-uri` to 3.1.5, which clears 1 of its 5 advisories — the other four need 3.1.6 (two SSRF, an IDN canonicalization bypass, and percent-encoded scheme confusion). Override floors are now set at the fixed versions rather than the versions that happened to be current, and the three advisories outside that PR's group are covered too: `brace-expansion` (via firebase-admin → gaxios → rimraf → glob → minimatch), `qs` (via @modelcontextprotocol/sdk → express), and `nanoid` (dev-only, via vitest → vite → postcss).
+
+### Changed
+
+- `cortex.db-shm` and `cortex.db-wal` are no longer tracked. They were committed in 7e95ee9 and stayed in the tree because `.gitignore` listed `cortex.db`, which does not match the sidecars. Contents were schema DDL only — no memories, no user rows — so this is stale build residue rather than a disclosure. The ignore rule is now `cortex.db*`.
+
+- The README's hono `serve-static` advisory note attributed the hardened static-file implementation to "the dashboard". The reasoning is unchanged and now stronger: the published package ships no static assets at all, so the path is inert unless a user supplies their own.
+
+
 ## [1.4.1] — 2026-08-01
 
 ### The gate that wasn't there

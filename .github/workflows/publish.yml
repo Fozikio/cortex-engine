@@ -28,9 +28,9 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
@@ -54,6 +54,13 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      # Runs AFTER the build, because `dist` does not exist before it. npm
+      # omits an absent `files` entry from the tarball without failing, which
+      # is how the web dashboard silently stopped shipping at 1.2.2 and stayed
+      # missing for four releases. This turns that class into a red build.
+      - name: Verify every `files` entry resolves
+        run: npm run verify:package
 
       # Safety: a `v*` tag must match package.json (skipped for manual runs).
       - name: Verify tag matches package version
@@ -81,7 +88,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Create GitHub Release from CHANGELOG
         env:

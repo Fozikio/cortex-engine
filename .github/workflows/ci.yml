@@ -16,8 +16,8 @@ jobs:
     name: Type Check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
@@ -36,10 +36,42 @@ jobs:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
       - run: npm ci
+      - run: npm test
+
+  # Gates on high/critical only. Moderates are deliberately not a merge
+  # blocker: some transitive advisories have no fix reachable without
+  # breaking changes, and a gate that cannot be satisfied gets ignored or
+  # bypassed rather than fixed. High and above must stay at zero.
+  audit:
+    name: Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm audit --audit-level=high
+
+  # package.json claims `engines: node >=20`, but every other job runs 24,
+  # so the claim was never tested. This job is the evidence for it. If it
+  # fails, the honest fix is to raise `engines` — not to delete this job.
+  node20:
+    name: Node 20 Compat
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build
       - run: npm test

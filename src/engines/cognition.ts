@@ -35,7 +35,12 @@ import { computeFiedlerValue, detectPESaturation } from './graph-metrics.js';
 import type { PESaturationResult } from './graph-metrics.js';
 import { safeStoreRead, type PhaseStats } from './_safe.js';
 import { cosineSimilarity } from './memory.js';
-import { assessThought } from './thought-quality.js';
+import {
+  assessThought,
+  hasConceptPlaceholder,
+  stripMarkdownFormatting,
+  substituteConceptPlaceholders,
+} from './thought-quality.js';
 import {
   REFINE_DEFINITION,
   EDGE_REVALIDATE,
@@ -311,7 +316,32 @@ async function refineMemories(
 
       // Direct evidence from Phase 1 clustering takes priority; fall back to edge evidence.
       const directEvidence = clusteredEvidence?.get(memory.id) ?? [];
-      const edgeEvidence = relatedEdges.slice(0, 10).map((e) => e.evidence).filter(Boolean);
+      // Edge evidence written before the connect-phase fix below carries the
+      // prompt's positional labels instead of concept names — 82% of rows in one
+      // live store. Feeding that back makes the model echo "Concept A" into the
+      // definition, where the placeholder gate rejects the whole refinement, so
+      // consolidation does less and less work while reporting success.
+      // Substituting on read repairs those rows without a backfill. getEdgesFrom
+      // returns `memory` as the source, which is slot A; only a contaminated row
+      // pays for the slot-B lookup, and that count trends to zero as the store
+      // fills with edges written by the fixed connect phase.
+      const edgeEvidence: string[] = [];
+      for (const edge of relatedEdges.slice(0, 10)) {
+        if (!edge.evidence) continue;
+        if (!hasConceptPlaceholder(edge.evidence)) {
+          edgeEvidence.push(edge.evidence);
+          continue;
+        }
+        const target = await safeStoreRead(
+          store.getMemory(edge.target_id),
+          null,
+          `refine:placeholder-target:${edge.target_id}`,
+          _dreamStats,
+        );
+        edgeEvidence.push(
+          substituteConceptPlaceholders(edge.evidence, { A: memory.name, B: target?.name }),
+        );
+      }
       const allEvidence = [...directEvidence, ...edgeEvidence];
 
       if (allEvidence.length === 0) continue;
@@ -533,12 +563,12 @@ async function discoverEdges(
 ): Promise<ConnectPhaseResult> {
   let edges_discovered = 0;
 
-  let recentMemories: Memory[];
-  try {
-    recentMemories = await store.getRecentMemories(7, 100);
-  } catch {
-    return { edges_discovered: 0 };
-  }
+  const recentMemories = await safeStoreRead(
+    store.getRecentMemories(7, 100),
+    [] as Memory[],
+    'connect:fetch',
+    _dreamStats,
+  );
 
   const recent = recentMemories.slice(0, 15); // cap to avoid O(n²) explosion
 
@@ -592,13 +622,20 @@ async function discoverEdges(
             target_id: memB.id,
             relation: result.relation,
             weight: 0.7,
-            evidence: result.evidence ?? '',
+            // Store the concepts' names, not the prompt's positional labels.
+            // refine reads this back as source material, so scaffolding left
+            // here becomes scaffolding in a definition.
+            evidence: substituteConceptPlaceholders(result.evidence ?? '', {
+              A: memA.name,
+              B: memB.name,
+            }),
             created_at: new Date(),
           });
 
           edges_discovered++;
         }
-      } catch {
+      } catch (err) {
+        dreamFailure('connect:pair', err);
         continue;
       }
     }
@@ -635,12 +672,12 @@ async function discoverEdgesLongContext(
   const memoryLimit = options.long_context_memory_limit ?? 200;
   let edges_discovered = 0;
 
-  let recentMemories: Memory[];
-  try {
-    recentMemories = await store.getRecentMemories(30, memoryLimit);
-  } catch {
-    return { edges_discovered: 0 };
-  }
+  const recentMemories = await safeStoreRead(
+    store.getRecentMemories(30, memoryLimit),
+    [] as Memory[],
+    'connect:fetch-long-context',
+    _dreamStats,
+  );
 
   if (recentMemories.length < 2) return { edges_discovered: 0 };
 
@@ -663,9 +700,11 @@ async function discoverEdgesLongContext(
         .map((e) => `  ${e.source_id} --[${e.relation}]--> ${e.target_id}: ${e.evidence}`)
         .join('\n');
     }
-  } catch {
+  } catch (err) {
     // Proceed without existing edge context — model may suggest duplicates,
-    // but we validate before writing so it's safe.
+    // but we validate before writing so it's safe. Still recorded: degraded
+    // input costs prompt budget and edge quality, so it must not be invisible.
+    dreamFailure('connect:existing-edges', err);
   }
 
   const validRelations: EdgeRelation[] = [
@@ -686,8 +725,12 @@ async function discoverEdgesLongContext(
   let discovered: LongContextEdge[];
   try {
     discovered = await llm.generateJSON<LongContextEdge[]>(prompt, { temperature: 0.2 });
-    if (!Array.isArray(discovered)) return { edges_discovered: 0 };
-  } catch {
+    if (!Array.isArray(discovered)) {
+      dreamFailure('connect:generate', new Error('model returned a non-array edge list'));
+      return { edges_discovered: 0 };
+    }
+  } catch (err) {
+    dreamFailure('connect:generate', err);
     return { edges_discovered: 0 };
   }
 
@@ -705,7 +748,12 @@ async function discoverEdgesLongContext(
         target_id: edge.target_id,
         relation: edge.relation,
         weight: 0.7,
-        evidence: edge.evidence ?? '',
+        // The graph prompt names its nodes, but a model may still answer in
+        // the positional idiom. Normalise on the way in either way.
+        evidence: substituteConceptPlaceholders(edge.evidence ?? '', {
+          A: memoryMap.get(edge.source_id)?.name,
+          B: memoryMap.get(edge.target_id)?.name,
+        }),
         created_at: new Date(),
       });
 
@@ -714,7 +762,8 @@ async function discoverEdgesLongContext(
       existingEdgeSet.add(`${edge.target_id}:${edge.source_id}`);
 
       edges_discovered++;
-    } catch {
+    } catch (err) {
+      dreamFailure('connect:write', err);
       continue;
     }
   }
@@ -914,8 +963,20 @@ async function abstractCrossDomain(
         maxTokens: 500,
       });
 
-      const trimmed = result.trim();
-      if (!trimmed || trimmed.includes('NO_ABSTRACTION')) continue;
+      const raw = result.trim();
+      if (!raw || raw.includes('NO_ABSTRACTION')) continue;
+
+      // Salvage formatting rather than reject on it. A rejected abstraction
+      // leaves nothing in its place — unlike refine, where the previous
+      // definition survives — so discarding a real cross-domain synthesis over
+      // its asterisks is the more expensive error. Stripping changes no content,
+      // and it matters doubly here because the name is derived from the first
+      // sentence: unstripped, the asterisks propagate into the label too.
+      const trimmed = stripMarkdownFormatting(raw);
+      if (!trimmed) continue;
+      if (trimmed !== raw) {
+        console.error('[dream:abstract] Stripped leaked markdown formatting from abstraction');
+      }
 
       // Structural quality gate. Abstractions legitimately introduce new
       // vocabulary (that's what abstraction is), so the grounding floor is
@@ -977,7 +1038,8 @@ async function abstractCrossDomain(
       });
 
       abstractions++;
-    } catch {
+    } catch (err) {
+      dreamFailure('abstract', err);
       continue;
     }
   }

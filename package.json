@@ -1,6 +1,6 @@
 {
   "name": "@fozikio/cortex-engine",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "description": "Portable cognitive engine for AI agents — storage, embeddings, memory, FSRS, and MCP server",
   "type": "module",
   "main": "dist/index.js",
@@ -15,30 +15,26 @@
     "serve": "node dist/bin/serve.js",
     "test": "node --experimental-vm-modules node_modules/vitest/vitest.mjs run",
     "test:watch": "node --experimental-vm-modules node_modules/vitest/vitest.mjs",
-    "docs:tools": "node dist/bin/generate-tools-doc.js"
+    "docs:tools": "node dist/bin/generate-tools-doc.js",
+    "verify:package": "node scripts/verify-package-files.mjs"
   },
   "engines": {
     "node": ">=20"
   },
   "dependencies": {
     "@fozikio/reflex": "^0.2.0",
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "better-sqlite3": "^11.7.0",
     "yaml": "^2.7.0"
   },
   "peerDependencies": {
-    "@anthropic-ai/sdk": "^0.39.0",
     "@google-cloud/aiplatform": "^3.12.0",
     "@google-cloud/firestore": "^7.11.0",
     "@google-cloud/vertexai": "^1.9.0",
     "@huggingface/transformers": "^3.8.1",
-    "firebase-admin": "^13.0.0",
-    "openai": "^4.77.0"
+    "firebase-admin": "^13.0.0"
   },
   "peerDependenciesMeta": {
-    "@anthropic-ai/sdk": {
-      "optional": true
-    },
     "@google-cloud/aiplatform": {
       "optional": true
     },
@@ -53,20 +49,15 @@
     },
     "firebase-admin": {
       "optional": true
-    },
-    "openai": {
-      "optional": true
     }
   },
   "devDependencies": {
-    "@anthropic-ai/sdk": "^0.39.0",
     "@google-cloud/aiplatform": "^3.12.0",
     "@google-cloud/firestore": "^7.11.0",
     "@google-cloud/vertexai": "^1.9.0",
     "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^22.10.0",
     "firebase-admin": "^13.0.0",
-    "openai": "^4.77.0",
     "typescript": "^5.7.0",
     "vitest": "^4.1.0"
   },
@@ -96,7 +87,6 @@
   },
   "files": [
     "dist",
-    "public",
     "hooks",
     "skills",
     "reflex-rules",
@@ -131,12 +121,15 @@
     "node-forge": ">=1.4.0",
     "path-to-regexp": ">=8.4.0",
     "protobufjs": "^7.5.6",
-    "fast-uri": "^3.1.2",
+    "fast-uri": "^3.1.6",
     "fast-xml-builder": "^1.1.7",
-    "hono": "^4.12.18",
+    "hono": "^4.13.3",
     "@hono/node-server": "^1.19.13",
     "uuid": "^11.1.0",
     "form-data": "^4.0.6",
+    "brace-expansion": "^2.1.4",
+    "nanoid": "^3.3.18",
+    "qs": "^6.16.0",
     "@types/request": {
       "form-data": "^2.5.6"
     }

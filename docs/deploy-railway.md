@@ -1,7 +1,14 @@
 # Deploy cortex-engine on Railway
 
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/cortex-engine)
+
 A hosted cortex REST server in a few minutes: one service built from this repo's `Dockerfile`, one
 volume for the SQLite store, and an LLM API key. No Ollama, no Firestore.
+
+The marketplace template at [railway.com/deploy/cortex-engine](https://railway.com/deploy/cortex-engine)
+does the steps below for you: it wires the volume at `/data`, the health check, the public port, and the
+variables (with a generated `CORTEX_API_TOKEN`); you supply the LLM key. The manual steps stay here for
+anyone deploying from a fork.
 
 ## What you get
 

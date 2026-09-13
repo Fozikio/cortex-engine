@@ -213,7 +213,7 @@ npm run test:watch
 | `CORTEX_LLM` | Optional | `ollama` \| `gemini` \| `anthropic` \| `openai` \| `kimi`. Same precedence as above. |
 | `CORTEX_SQLITE_PATH` | Optional | Path to the SQLite file, e.g. a mounted volume (`/data/cortex.db`). |
 
-Additional variables are required depending on which providers you enable (Firestore, Vertex AI, etc.). See `docs/` for provider-specific configuration, and [`docs/deploy-railway.md`](docs/deploy-railway.md) for a hosted deployment with no Ollama.
+Additional variables are required depending on which providers you enable (Firestore, Vertex AI, etc.). See `docs/` for provider-specific configuration, and [`docs/deploy-railway.md`](docs/deploy-railway.md) for a hosted deployment with no Ollama — or use the one-click template: [![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/cortex-engine)
 
 ## Rules, Skills & Agents
 

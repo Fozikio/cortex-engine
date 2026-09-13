@@ -110,11 +110,18 @@ export interface DreamOptions {
   abstraction_novelty_threshold?: number;
   /**
    * Similarity threshold between abstractions minted in the *same* run
-   * (default: 0.82). Attempts sample overlapping memories, so one run can
-   * produce the same synthesis several times in different words; those
-   * paraphrases sit below the store-wide novelty threshold but well above
-   * unrelated content. An attempt whose embedding is at least this similar
-   * to an abstraction already written this run is skipped. (#83)
+   * (default: 0.60). Attempts sample overlapping memories, so one run can
+   * produce the same synthesis several times in different words. An attempt
+   * whose embedding is at least this similar to an abstraction already
+   * written this run is skipped. (#83)
+   *
+   * The default is measured, not guessed: on a live store with
+   * qwen3-embedding:0.6b, the paraphrase pairs one run produced scored
+   * 0.615–0.693 against each other, while a run of five genuinely distinct
+   * abstractions topped out at 0.539 — the 0.82 first shipped in 1.5.2 would
+   * have skipped none of the duplicates. Other embedding models spread
+   * scores differently; set `abstraction_dedupe_threshold` in the namespace
+   * config after measuring a run's pairwise similarities.
    */
   abstraction_dedupe_threshold?: number;
   /** Namespace config merge threshold */
@@ -1010,7 +1017,7 @@ export async function abstractCrossDomain(
 ): Promise<AbstractPhaseResult> {
   const attempts = options.abstraction_attempts ?? 5;
   const noveltyThreshold = options.abstraction_novelty_threshold ?? 0.88;
-  const dedupeThreshold = options.abstraction_dedupe_threshold ?? 0.82;
+  const dedupeThreshold = options.abstraction_dedupe_threshold ?? 0.60;
   let abstractions = 0;
   // Embeddings of abstractions written in this run, for the within-run check.
   const writtenThisRun: number[][] = [];

@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [1.5.3] — 2026-09-13
+
+### Fixed
+
+- **The within-run abstraction dedupe shipped in 1.5.2 was set where it caught nothing.** Its default of 0.82 was a guess. Measured on the live store that motivated it (qwen3-embedding:0.6b): the paraphrase pairs from one run score 0.615–0.693 against each other; a later run's five genuinely distinct abstractions top out at 0.539. Default is now 0.60, sitting between the two measured sets, and `abstraction_dedupe_threshold` is a namespace config key passed through by the `dream` tool, because other embedding models spread scores differently and the right line is a per-deployment measurement. (#83)
+
 ## [1.5.2] — 2026-09-13
 
 ### Fixed

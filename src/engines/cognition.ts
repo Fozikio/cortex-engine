@@ -139,6 +139,18 @@ export interface DreamOptions {
    */
   skip_hindsight?: boolean;
   /**
+   * If true, refine may fall back to the evidence text of a memory's `related`
+   * edges when no observation clustered onto it this run. Off by default: edge
+   * evidence is the connect phase's description of the *neighbouring* memory,
+   * and handing it to the refine prompt as "new observations" folds the
+   * neighbour's content into this memory's definition. On a live store that
+   * rewrote 21 memories in one run — 12 of them within an hour of a manual
+   * correction — with numbers, quotations and first person dropped and the
+   * neighbour's named entities added. A memory nothing new was learned about
+   * should be left alone. (#86)
+   */
+  refine_from_edges?: boolean;
+  /**
    * Max number of entrenched memories to audit in the hindsight phase (default: 5).
    * Each memory requires one LLM call, so keep this low for cost/latency.
    */
@@ -291,12 +303,15 @@ async function clusterObservations(
 /**
  * For memories accessed recently that have accumulated new clustered observations,
  * ask the LLM to rewrite the definition incorporating the new evidence.
+ *
+ * Faded memories are never refined: fading is a deliberate signal that the
+ * definition should stop being elaborated, and refining one re-elaborates it.
  */
 async function refineMemories(
   store: CortexStore,
   embed: EmbedProvider,
   llm: LLMProvider,
-  _options: DreamOptions,
+  options: DreamOptions,
   clusteredEvidence?: Map<string, string[]>,
 ): Promise<RefinePhaseResult> {
   let refined = 0;
@@ -309,38 +324,43 @@ async function refineMemories(
   );
 
   for (const memory of recentMemories) {
+    if (memory.faded) continue;
     try {
-      // Fetch edges with relation 'related' that reference this memory.
-      const edges = await store.getEdgesFrom(memory.id);
-      const relatedEdges = edges.filter((e) => e.relation === 'related');
-
-      // Direct evidence from Phase 1 clustering takes priority; fall back to edge evidence.
+      // Direct evidence from Phase 1 clustering is what refine exists for.
       const directEvidence = clusteredEvidence?.get(memory.id) ?? [];
-      // Edge evidence written before the connect-phase fix below carries the
-      // prompt's positional labels instead of concept names — 82% of rows in one
-      // live store. Feeding that back makes the model echo "Concept A" into the
-      // definition, where the placeholder gate rejects the whole refinement, so
-      // consolidation does less and less work while reporting success.
-      // Substituting on read repairs those rows without a backfill. getEdgesFrom
-      // returns `memory` as the source, which is slot A; only a contaminated row
-      // pays for the slot-B lookup, and that count trends to zero as the store
-      // fills with edges written by the fixed connect phase.
+
+      // Edge evidence describes the neighbour, not this memory, so it is only
+      // used when the caller opts in (see DreamOptions.refine_from_edges) and
+      // only when nothing clustered directly.
       const edgeEvidence: string[] = [];
-      for (const edge of relatedEdges.slice(0, 10)) {
-        if (!edge.evidence) continue;
-        if (!hasConceptPlaceholder(edge.evidence)) {
-          edgeEvidence.push(edge.evidence);
-          continue;
+      if (directEvidence.length === 0 && options.refine_from_edges) {
+        const edges = await store.getEdgesFrom(memory.id);
+        const relatedEdges = edges.filter((e) => e.relation === 'related');
+        // Edge evidence written before the connect-phase fix below carries the
+        // prompt's positional labels instead of concept names — 82% of rows in one
+        // live store. Feeding that back makes the model echo "Concept A" into the
+        // definition, where the placeholder gate rejects the whole refinement, so
+        // consolidation does less and less work while reporting success.
+        // Substituting on read repairs those rows without a backfill. getEdgesFrom
+        // returns `memory` as the source, which is slot A; only a contaminated row
+        // pays for the slot-B lookup, and that count trends to zero as the store
+        // fills with edges written by the fixed connect phase.
+        for (const edge of relatedEdges.slice(0, 10)) {
+          if (!edge.evidence) continue;
+          if (!hasConceptPlaceholder(edge.evidence)) {
+            edgeEvidence.push(edge.evidence);
+            continue;
+          }
+          const target = await safeStoreRead(
+            store.getMemory(edge.target_id),
+            null,
+            `refine:placeholder-target:${edge.target_id}`,
+            _dreamStats,
+          );
+          edgeEvidence.push(
+            substituteConceptPlaceholders(edge.evidence, { A: memory.name, B: target?.name }),
+          );
         }
-        const target = await safeStoreRead(
-          store.getMemory(edge.target_id),
-          null,
-          `refine:placeholder-target:${edge.target_id}`,
-          _dreamStats,
-        );
-        edgeEvidence.push(
-          substituteConceptPlaceholders(edge.evidence, { A: memory.name, B: target?.name }),
-        );
       }
       const allEvidence = [...directEvidence, ...edgeEvidence];
 
@@ -377,12 +397,17 @@ async function refineMemories(
 
       // Belief log + memory update must commit together: a half-applied
       // refinement leaves the audit trail referencing a stale definition.
+      // The reason names the evidence kind so the history is honest about
+      // whether a rewrite came from observations or from edge prose.
+      const reason = directEvidence.length > 0
+        ? `Dream refinement from ${totalEvidence} observations`
+        : `Dream refinement from ${totalEvidence} edge evidence strings`;
       await store.withTransaction(async (txn) => {
         await txn.putBelief({
           concept_id: memory.id,
           old_definition: memory.definition,
           new_definition: newDefinition.trim(),
-          reason: `Dream refinement from ${totalEvidence} observations`,
+          reason,
           changed_at: new Date(),
         });
         await txn.updateMemory(memory.id, {
@@ -570,7 +595,10 @@ async function discoverEdges(
     _dreamStats,
   );
 
-  const recent = recentMemories.slice(0, 15); // cap to avoid O(n²) explosion
+  // Faded memories stay out of edge discovery: an intentionally faded memory
+  // that keeps gaining edges is being re-amplified through the graph even
+  // though its salience was lowered on purpose. Cap to avoid O(n²) explosion.
+  const recent = recentMemories.filter((m) => !m.faded).slice(0, 15);
 
   if (recent.length < 2) return { edges_discovered: 0 };
 

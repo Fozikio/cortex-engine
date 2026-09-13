@@ -49,11 +49,15 @@ export const MEMORY_CATEGORIES: readonly MemoryCategory[] = [
 export const REFINE_DEFINITION = definePrompt<{
   definition: string;
   observations: string[];
-}>('refine-definition', 1, (p) =>
+}>('refine-definition', 2, (p) =>
   `You are refining a memory concept based on new observations.\n\n` +
   `Current definition: ${p.definition}\n\n` +
   `New observations:\n${p.observations.map((o) => `- ${o}`).join('\n')}\n\n` +
-  `Write an improved definition that incorporates the new observations. Keep it concise (2-4 sentences). Do not include any preamble.`,
+  `Write an improved definition that keeps the current definition's claim and adds what the observations establish. ` +
+  `Preserve every number, date, quotation, named person, place, project and file from the current definition, and keep its voice (first person stays first person). ` +
+  `Do not generalise a specific fact into a category description. Do not add subjects the observations do not mention. ` +
+  `Do not mention similarity scores, consolidation, or this refinement process. ` +
+  `Keep it concise (2-4 sentences). Do not include any preamble.`,
 );
 
 /** Phase 2 — re-check an edge after its source definition changed. */

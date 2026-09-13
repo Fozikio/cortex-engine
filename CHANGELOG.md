@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [1.5.1] — 2026-09-13
+
+### Fixed
+
+- **Dream refine no longer rewrites memories from their neighbours.** When nothing had clustered onto a recently-touched memory, refine fell back to the `evidence` text of its `related` edges — the connect phase's description of the *other* memory — and asked the model to fold that into the definition. On a live 638-memory store one run rewrote 21 memories that way, 12 of them within an hour of a manual `believe()` (which bumps `updated_at` and so guarantees selection): numbers, quotations and first person dropped, the neighbour's named entities added, and in two cases the dream's own similarity scores ("0.69 to 0.77") written into a `value` memory as content. Refine now rewrites only memories that gained direct observations this run; the edge fallback is opt-in via `DreamOptions.refine_from_edges`, and its belief-history reason says "edge evidence strings" instead of "observations" when it is used. (#86, the mechanism behind #85)
+- Refine and connect skip `faded` memories. Fading is a deliberate signal to stop elaborating a memory; the same run re-elaborated three faded ones and gave one of them 14 new edges. Hindsight already excluded them.
+- `refine-definition` prompt bumped to v2: keep the existing claim, preserve numbers, dates, quotations, names and voice, do not generalise a specific fact into a category description, do not add subjects the observations do not mention, never mention similarity scores or the consolidation process.
+
 ## [1.5.0] — 2026-09-13
 
 ### Changed

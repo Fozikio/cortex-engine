@@ -29,7 +29,7 @@ describe('prompt registry', () => {
 
   it('pins prompt versions (bump deliberately when wording changes)', () => {
     expect(promptVersions()).toEqual({
-      'refine-definition': 1,
+      'refine-definition': 2,
       'edge-revalidate': 1,
       'classify-category': 1,
       'edge-discover-pair': 1,

@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [1.5.2] — 2026-09-13
+
+### Fixed
+
+- **Abstract no longer stores the model's title line as a memory name.** The synthesis prompt was answered with `Pattern: *Silent Success as a Structural Failure Mode*` followed by a newline and the explanation more often than not. The name was "the first sentence", the title line has no sentence punctuation, so the stored name was the label, its asterisks, the newline and the opening of the explanation — 100 characters of scaffolding — and the definition began with the same label. `stripMarkdownFormatting` only knew `**bold**`. A new `parseAbstraction` splits a `Pattern:` / `Pattern Name:` / `Abstraction:` line (or the one-line `Pattern: X — …` form) into name and body, drops `Explanation:`-style body labels, strips single-asterisk and underscore emphasis, and names plain prose through the same 60-character heuristic every other mint path uses. A title with no body is not an abstraction and is skipped. The prompt (v2) now asks for plain prose with no title line; the parser is the defence for when it gets one anyway. (#83)
+- **Abstract no longer mints the same synthesis several times in one run.** Attempts sample overlapping memories and the model restates the idea in new words; those paraphrases sat below the store-wide 0.88 novelty threshold (which also only looks at what was already stored before the run). Each attempt is now also compared against the abstractions written earlier in the same run and skipped at `abstraction_dedupe_threshold` (default 0.82). Two live runs each produced five abstractions of which at least two were pairs. (#83)
+- **Abstract no longer samples faded memories.** Fading lowers salience on purpose; an abstraction that cites a faded memory re-attaches `exemplifies` edges to it and pulls it back into the graph — four such edges in one run, two of them onto the fabricated memory that started the 2026-09-13 audit. Refine and connect got the same exclusion in 1.5.1. (#83)
+
 ## [1.5.1] — 2026-09-13
 
 ### Fixed

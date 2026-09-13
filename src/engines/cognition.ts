@@ -29,7 +29,7 @@ import type { EmbedProvider } from '../core/embed.js';
 import type { LLMProvider } from '../core/llm.js';
 import type { Memory, MemoryCategory, Observation, EdgeRelation, BeliefEntry, Edge } from '../core/types.js';
 import { extractKeywords } from './keywords.js';
-import { deriveName } from './naming.js';
+import { deriveName, deriveNameHeuristic, NAME_MAX_LEN } from './naming.js';
 import { scheduleNext, newFSRSState, elapsedDaysSince } from './fsrs.js';
 import { computeFiedlerValue, detectPESaturation } from './graph-metrics.js';
 import type { PESaturationResult } from './graph-metrics.js';
@@ -108,6 +108,15 @@ export interface DreamOptions {
   cluster_threshold?: number;
   /** Similarity threshold for detecting duplicate abstractions (default: 0.88) */
   abstraction_novelty_threshold?: number;
+  /**
+   * Similarity threshold between abstractions minted in the *same* run
+   * (default: 0.82). Attempts sample overlapping memories, so one run can
+   * produce the same synthesis several times in different words; those
+   * paraphrases sit below the store-wide novelty threshold but well above
+   * unrelated content. An attempt whose embedding is at least this similar
+   * to an abstraction already written this run is skipped. (#83)
+   */
+  abstraction_dedupe_threshold?: number;
   /** Namespace config merge threshold */
   similarity_merge?: number;
   /** Namespace config link threshold */
@@ -934,10 +943,66 @@ async function scoreMemories(
 // ─── Phase 6: Abstract (REM) ──────────────────────────────────────────────────
 
 /**
+ * Split an abstraction response into a label and a body.
+ *
+ * Models answer the synthesis prompt with a title line more often than not —
+ * `Pattern: *Silent Success*`, `Pattern Name: X` followed by `Explanation: …`,
+ * or `Pattern: X — explanation` on one line. Stored verbatim, that scaffolding
+ * became the memory's name *and* the opening of its definition, complete with
+ * asterisks and newlines, because the name was "the first sentence" and the
+ * title line has no sentence punctuation to stop at. (#83)
+ *
+ * Returns null when nothing but a title is present: a label with no body is
+ * not an abstraction.
+ */
+export function parseAbstraction(raw: string): { name: string; definition: string } | null {
+  const text = stripMarkdownFormatting(raw ?? '').trim();
+  if (!text) return null;
+
+  const LABEL_LINE = /^(?:pattern(?:\s+name)?|abstraction|principle|title|name)\s*:\s*(.+)$/i;
+  const BODY_LABEL = /^(?:explanation|abstraction|why it matters|the pattern|pattern)\s*:\s*/i;
+
+  const lines = text.split('\n').map((l) => l.trim()).filter((l) => l.length > 0);
+  let name = '';
+  let bodyLines = lines;
+
+  const titleMatch = lines[0]?.match(LABEL_LINE);
+  if (titleMatch) {
+    let title = titleMatch[1].trim();
+    bodyLines = lines.slice(1);
+    // One-line form: "Pattern: X — the explanation follows the dash."
+    if (bodyLines.length === 0) {
+      const parts = title.split(/\s+[—–]\s+|\s+-{1,2}\s+/);
+      if (parts.length > 1) {
+        title = parts[0].trim();
+        bodyLines = [parts.slice(1).join(' — ').trim()];
+      }
+    }
+    name = title;
+  }
+
+  const definition = bodyLines
+    .map((l) => l.replace(BODY_LABEL, '').trim())
+    .filter((l) => l.length > 0)
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!definition) return null;
+
+  name = name.replace(/\s+/g, ' ').replace(/[\s.!?;:,]+$/, '').trim();
+  if (!name) name = deriveNameHeuristic(definition);
+  else if (name.length > NAME_MAX_LEN) name = deriveNameHeuristic(name);
+
+  return { name, definition };
+}
+
+/**
  * REM sleep phase: sample recent memories across categories and attempt
  * to synthesize higher-level cross-domain abstractions.
+ *
+ * Exported for tests; dream callers go through dreamPhaseB / dreamConsolidate.
  */
-async function abstractCrossDomain(
+export async function abstractCrossDomain(
   store: CortexStore,
   embed: EmbedProvider,
   llm: LLMProvider,
@@ -945,7 +1010,10 @@ async function abstractCrossDomain(
 ): Promise<AbstractPhaseResult> {
   const attempts = options.abstraction_attempts ?? 5;
   const noveltyThreshold = options.abstraction_novelty_threshold ?? 0.88;
+  const dedupeThreshold = options.abstraction_dedupe_threshold ?? 0.82;
   let abstractions = 0;
+  // Embeddings of abstractions written in this run, for the within-run check.
+  const writtenThisRun: number[][] = [];
 
   let allMemories: Memory[];
   try {
@@ -954,8 +1022,12 @@ async function abstractCrossDomain(
     return { abstractions: 0 };
   }
 
-  // Work from 60 most recently updated memories.
+  // Work from the 60 most recently updated memories. Faded memories are
+  // excluded: fading lowers a memory's salience on purpose, and an
+  // abstraction that cites it re-attaches edges to it and pulls it back into
+  // the graph — one live run put four edges on intentionally faded rows.
   const recent = allMemories
+    .filter((m) => !m.faded)
     .sort((a, b) => b.updated_at.getTime() - a.updated_at.getTime())
     .slice(0, 60);
 
@@ -997,13 +1069,14 @@ async function abstractCrossDomain(
       // Salvage formatting rather than reject on it. A rejected abstraction
       // leaves nothing in its place — unlike refine, where the previous
       // definition survives — so discarding a real cross-domain synthesis over
-      // its asterisks is the more expensive error. Stripping changes no content,
-      // and it matters doubly here because the name is derived from the first
-      // sentence: unstripped, the asterisks propagate into the label too.
-      const trimmed = stripMarkdownFormatting(raw);
-      if (!trimmed) continue;
+      // its asterisks or its title line is the more expensive error. Parsing
+      // changes no content: the label becomes the name, the body becomes the
+      // definition, and the markdown goes.
+      const parsed = parseAbstraction(raw);
+      if (!parsed) continue;
+      const trimmed = parsed.definition;
       if (trimmed !== raw) {
-        console.error('[dream:abstract] Stripped leaked markdown formatting from abstraction');
+        console.error('[dream:abstract] Normalised abstraction formatting (title line / markdown)');
       }
 
       // Structural quality gate. Abstractions legitimately introduce new
@@ -1028,11 +1101,16 @@ async function abstractCrossDomain(
         continue;
       }
 
-      // Use first sentence as name, full text as definition
-      const firstSentence = trimmed.match(/^[^.!?]+[.!?]/)?.[0]?.trim() ?? trimmed;
-      const memName = firstSentence.length > 100
-        ? firstSentence.slice(0, 97) + '...'
-        : firstSentence;
+      // Same idea twice in one run: attempts sample overlapping memories and
+      // the model restates the same synthesis in new words. The store-wide
+      // check above misses paraphrases; this one compares against what this
+      // run has already written.
+      if (writtenThisRun.some((e) => cosineSimilarity(e, abstEmbedding) >= dedupeThreshold)) {
+        console.error('[dream:abstract] Skipped near-duplicate of an abstraction written earlier in this run');
+        continue;
+      }
+
+      const memName = parsed.name;
 
       // Abstraction memory + its provenance edges land together. Otherwise
       // a partial commit produces an "insight" with no traceable sources.
@@ -1065,6 +1143,7 @@ async function abstractCrossDomain(
         }
       });
 
+      writtenThisRun.push(abstEmbedding);
       abstractions++;
     } catch (err) {
       dreamFailure('abstract', err);

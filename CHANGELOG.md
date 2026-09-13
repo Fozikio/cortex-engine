@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+## [1.5.0] — 2026-09-13
+
+### Changed
+
+- **Node 22 is now the floor. `engines.node` is `>=22`; Node 20 installs will refuse this version.** (#76)
+
+  Node 20 reached end-of-life on 2026-04-30 and nothing should still be shipping to it, but the reason to move now is mechanical: `better-sqlite3` 13 declares `node >=22`, and `vitest` 5 cannot run against `better-sqlite3` 11 — its changed worker lifecycle tears down the addon on a null N-API env (`Assertion failed: (env) != nullptr`, SIGABRT, Linux only). So the two Dependabot bumps that had been failing CI for a week were one decision, not two, and this release makes it deliberately rather than letting a dependency-group merge make it silently. The `Node 20 Compat` CI job is now `Node 22 Compat` — same purpose, one floor higher.
+
+- `better-sqlite3` `^11.7.0` → `^13.0.3` (runtime). Replaces `bindings`/`prebuild-install` with `node-addon-api`; the lockfile drops ~50 transitive packages.
+- `vitest` `^4.1.0` → `^5.0.0` (dev). 326/326 pass; verified on the Linux runner, not just locally, because that is where the old combination failed.
+
+## [1.4.2] — 2026-09-10
+
+### Changed
+
+- The README's "Known advisories" section told readers to expect three moderate `@hono/node-server` advisories and to treat audit noise from that chain as "expected and safe to ignore". The section's own exit condition had been met — `@modelcontextprotocol/sdk` 1.30.0 accepts `@hono/node-server` 2.x — and a fresh install reports 0 vulnerabilities. Rewritten, and the SDK floor raised to `^1.30.0` so the clean audit is a property of the package rather than of install timing. (#75)
+
 ### Fixed
 
 - **The markdown gate was anchored to the start of the text, so `abstract` leaked bold into definitions and names.** (#54)

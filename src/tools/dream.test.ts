@@ -37,7 +37,7 @@ function makeContext(store: SqliteCortexStore): ToolContext {
     namespaces: {
       getStore: vi.fn(() => store),
       getDefaultNamespace: vi.fn(() => 'default'),
-      getConfig: vi.fn(() => ({ similarity_merge: 0.9, similarity_link: 0.7 })),
+      getConfig: vi.fn(() => ({ similarity_merge: 0.9, similarity_link: 0.7, abstraction_dedupe_threshold: 0.55 })),
     },
     embed: {},
     llm: {},
@@ -47,6 +47,16 @@ function makeContext(store: SqliteCortexStore): ToolContext {
     allTools: [],
   } as unknown as ToolContext;
 }
+
+describe('dream options', () => {
+  it('passes the namespace abstraction_dedupe_threshold through to the cycle', async () => {
+    const { dreamConsolidate } = await import('../engines/cognition.js');
+    const store = new SqliteCortexStore(':memory:');
+    await dreamTool.handler({}, makeContext(store));
+    const opts = (dreamConsolidate as unknown as ReturnType<typeof vi.fn>).mock.calls.at(-1)?.[3];
+    expect(opts).toMatchObject({ abstraction_dedupe_threshold: 0.55, similarity_merge: 0.9, similarity_link: 0.7 });
+  });
+});
 
 describe('dream run recording', () => {
   it('writes a consolidation_history entry with the phase counts', async () => {

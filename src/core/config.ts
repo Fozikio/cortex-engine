@@ -19,6 +19,14 @@ export interface NamespaceConfig {
   similarity_merge?: number;
   /** Similarity threshold above which observations are linked (default: 0.50). */
   similarity_link?: number;
+  /**
+   * Similarity above which two abstractions minted in the same dream run are
+   * treated as the same synthesis and the later one is skipped (default: 0.60).
+   * Embedding models differ in how they spread scores, so tune this per
+   * deployment: measure a run's pairwise similarities and put the line between
+   * the paraphrase pairs and the genuinely distinct ones.
+   */
+  abstraction_dedupe_threshold?: number;
   /** Whether other namespaces can read this namespace's memories (default: false). */
   queryable?: boolean;
 }

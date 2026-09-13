@@ -17,6 +17,7 @@ import { parse as parseYaml } from 'yaml';
 import type { CortexStore } from '../core/store.js';
 import type { EmbedProvider } from '../core/embed.js';
 import type { LLMProvider } from '../core/llm.js';
+import type { Observation } from '../core/types.js';
 import { predictionErrorGate } from './memory.js';
 import { extractKeywords } from './keywords.js';
 
@@ -31,6 +32,104 @@ export interface DigestOptions {
   source_file?: string;
   /** Salience override (default: auto-detect from content) */
   salience?: number;
+  /**
+   * How to treat the document's claims. Default: decided from frontmatter by
+   * `classifyDocument` — a `type` of workshop/experiment/creative/fiction, or a
+   * tag on the non-factual list, makes the document 'speculation'. Pass 'fact'
+   * to override for a document that is factual despite its type, or
+   * 'speculation' to force it for one the frontmatter does not flag.
+   */
+  treat_as?: 'fact' | 'speculation';
+}
+
+// ─── Document provenance ─────────────────────────────────────────────────────
+
+/**
+ * Document types whose claims are not the author's own assertions of fact:
+ * writing exercises, self-experiments, fiction, drafts.
+ */
+const NON_FACTUAL_TYPES = new Set(['workshop', 'experiment', 'experiments', 'creative', 'fiction', 'draft', 'exercise']);
+
+/**
+ * Tags that mark a document as voicing someone else, imitating a voice, or
+ * deliberately playing: everything a reader would not quote as the author's
+ * considered position.
+ */
+const NON_FACTUAL_TAGS = new Set([
+  'experiments', 'experiment', 'style-transfer', 'impersonation', 'cross-model',
+  'debate', 'dreams', 'dream-journal', 'humor', 'humour', 'satire', 'fiction', 'roleplay',
+]);
+
+export interface DocProvenance {
+  /** Frontmatter `type`, lower-cased, if present. */
+  source_type?: string;
+  /** Frontmatter `tags`, lower-cased. */
+  source_tags: string[];
+  /** Whether declarative extractions from this document count as facts. */
+  treat_as: 'fact' | 'speculation';
+  /** Why `treat_as` came out the way it did — for logs and the digest result. */
+  reason: string;
+}
+
+/**
+ * Decide, from frontmatter, whether a document's claims are the author's facts
+ * or something else — a style-transfer exercise, a cross-model debate, a dream
+ * journal, satire. Digest used to drop `type` and `tags` on the floor, so a
+ * sentence the agent wrote *imitating its owner* was stored with the same shape
+ * and confidence as a line from a journal, and a later dream refined it into a
+ * fact about the owner. (#84)
+ */
+export function classifyDocument(
+  frontmatter: Record<string, unknown>,
+  override?: 'fact' | 'speculation',
+): DocProvenance {
+  const source_type = typeof frontmatter['type'] === 'string'
+    ? (frontmatter['type'] as string).trim().toLowerCase()
+    : undefined;
+  const rawTags = frontmatter['tags'];
+  const source_tags = (Array.isArray(rawTags) ? rawTags : typeof rawTags === 'string' ? rawTags.split(',') : [])
+    .map((t) => String(t).trim().toLowerCase())
+    .filter((t) => t.length > 0);
+
+  if (override) {
+    return { source_type, source_tags, treat_as: override, reason: `treat_as override: ${override}` };
+  }
+  if (source_type && NON_FACTUAL_TYPES.has(source_type)) {
+    return { source_type, source_tags, treat_as: 'speculation', reason: `type: ${source_type}` };
+  }
+  const flagged = source_tags.find((t) => NON_FACTUAL_TAGS.has(t));
+  if (flagged) {
+    return { source_type, source_tags, treat_as: 'speculation', reason: `tag: ${flagged}` };
+  }
+  return { source_type, source_tags, treat_as: 'fact', reason: source_type ? `type: ${source_type}` : 'no type' };
+}
+
+/**
+ * Wrap a store so every observation written through it carries the document's
+ * provenance, and — when the document is not factual — no observation is
+ * stored as `declarative`. One wrapper instead of a parameter threaded through
+ * four steps and six write sites; everything else on the store passes through
+ * bound to the original, so `this`-dependent methods keep working.
+ */
+export function withDocProvenance(store: CortexStore, prov: DocProvenance): CortexStore {
+  const putObservation = async (obs: Omit<Observation, 'id'>): Promise<string> => {
+    const contentType = obs.content_type ?? 'declarative';
+    return store.putObservation({
+      ...obs,
+      source_type: obs.source_type ?? prov.source_type,
+      source_tags: obs.source_tags ?? prov.source_tags,
+      content_type: prov.treat_as === 'speculation' && contentType === 'declarative'
+        ? 'speculative'
+        : contentType,
+    });
+  };
+  return new Proxy(store, {
+    get(target, prop, receiver) {
+      if (prop === 'putObservation') return putObservation;
+      const value = Reflect.get(target, prop, receiver);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
 }
 
 export interface DigestResult {
@@ -438,6 +537,9 @@ async function runExtractStep(
     `Return a JSON array. Each item: { "text": "...", "type": "belief|question|hypothesis|reflection|fact", "salience": 0.3-0.9 }\n` +
     `Higher salience for strongly held beliefs, recurring patterns, and emotional reactions.\n` +
     `Only include items with real substance — skip filler and operational noise.\n` +
+    `Keep the speaker in the item. If the text quotes, voices, argues as, or imitates someone other than its author, ` +
+    `say so in the text field ("GPT-4o argued that…", "Written in Virgil's voice: …", "The narrator of the dream believes…"); ` +
+    `never turn another voice's claim into a bare statement of fact.\n` +
     `If nothing worth extracting, return [].\n\n` +
     `Text:\n${snippet}`;
 
@@ -520,6 +622,15 @@ export async function digestDocument(
   const sourceFile = options?.source_file ?? '';
   const { frontmatter, body } = parseDocument(content);
   const salience = options?.salience ?? detectSalience(frontmatter, body);
+
+  // Every observation this document produces carries its type and tags, and a
+  // non-factual document never yields a declarative observation. Shadowing
+  // `store` here means the steps below need no changes.
+  const provenance = classifyDocument(frontmatter, options?.treat_as);
+  if (provenance.treat_as === 'speculation') {
+    console.error(`[digest] ${sourceFile || '(inline)'} treated as speculation (${provenance.reason}): declarative extractions stored as speculative`);
+  }
+  store = withDocProvenance(store, provenance);
 
   const observation_ids: string[] = [];
   const memories_linked: string[] = [];

@@ -111,6 +111,15 @@ export interface Observation {
   provenance?: ModelProvenance;
   /** Content type for filtering — declarative (facts), interrogative (questions), speculative (hypotheses), reflective (synthesis). Defaults to 'declarative'. */
   content_type?: ObservationContentType;
+  /**
+   * Document type the observation was digested from (the source's frontmatter
+   * `type`, lower-cased) — e.g. 'journal', 'workshop', 'experiment'. Lets a
+   * reader tell a fact taken from a journal apart from a line taken from a
+   * piece of fiction or a self-experiment, which the content alone cannot.
+   */
+  source_type?: string;
+  /** Source document's frontmatter tags, lower-cased. */
+  source_tags?: string[];
 }
 
 // ─── Ops ──────────────────────────────────────────────────────────────────────

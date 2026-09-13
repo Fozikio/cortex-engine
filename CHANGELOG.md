@@ -6,7 +6,7 @@
 
 ### Changed
 
-- **Node 22 is now the floor. `engines.node` is `>=22`; Node 20 installs will refuse this version.** (#76)
+- **Node 22 is now the floor: `engines.node` is `>=22`.** npm only warns on an `engines` mismatch unless `engine-strict` is set, so a Node 20 install is not refused outright — but `better-sqlite3` 13 will not build there, so it fails at install either way. `fozikio doctor` now enforces the same floor. (#76)
 
   Node 20 reached end-of-life on 2026-04-30 and nothing should still be shipping to it, but the reason to move now is mechanical: `better-sqlite3` 13 declares `node >=22`, and `vitest` 5 cannot run against `better-sqlite3` 11 — its changed worker lifecycle tears down the addon on a null N-API env (`Assertion failed: (env) != nullptr`, SIGABRT, Linux only). So the two Dependabot bumps that had been failing CI for a week were one decision, not two, and this release makes it deliberately rather than letting a dependency-group merge make it silently. The `Node 20 Compat` CI job is now `Node 22 Compat` — same purpose, one floor higher.
 

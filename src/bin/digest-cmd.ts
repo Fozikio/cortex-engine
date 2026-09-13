@@ -9,6 +9,7 @@
  *   fozikio digest --namespace prediction               Target namespace
  *   fozikio digest --dir <path>                         Directory to scan for --pending
  *   fozikio digest --dir <path> --all                   Process ALL .md files in directory
+ *   fozikio digest <file> --treat-as speculation        Override the frontmatter-based fact/speculation decision
  */
 
 import { readFileSync, writeFileSync, readdirSync, statSync, renameSync, mkdirSync, existsSync } from 'node:fs';
@@ -35,6 +36,7 @@ interface ParsedArgs {
   pipeline: string[];
   namespace: string | null;
   dir: string;
+  treatAs: 'fact' | 'speculation' | null;
 }
 
 interface FileFrontmatter {
@@ -60,6 +62,7 @@ function parseArgs(args: string[]): ParsedArgs {
   let pipeline: string[] = ['observe', 'reflect'];
   let namespace: string | null = null;
   let dir = process.cwd();
+  let treatAs: 'fact' | 'speculation' | null = null;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -76,6 +79,11 @@ function parseArgs(args: string[]): ParsedArgs {
       namespace = args[++i];
     } else if (arg === '--dir' && args[i + 1]) {
       dir = resolve(args[++i]);
+    } else if (arg === '--treat-as' && args[i + 1]) {
+      const v = args[++i];
+      if (v === 'fact' || v === 'speculation') treatAs = v;
+      else { process.stderr.write(`--treat-as must be fact or speculation, got: ${v}
+`); process.exit(1); }
     } else if (!arg.startsWith('--')) {
       file = arg;
     }
@@ -86,7 +94,7 @@ function parseArgs(args: string[]): ParsedArgs {
     pending = true;
   }
 
-  return { file, pending, all, dryRun, pipeline, namespace, dir };
+  return { file, pending, all, dryRun, pipeline, namespace, dir, treatAs };
 }
 
 // ─── Provider Setup ───────────────────────────────────────────────────────────
@@ -217,6 +225,7 @@ async function processSingleFile(
   store: CortexStore,
   embed: EmbedProvider,
   llm: LLMProvider,
+  treatAs: 'fact' | 'speculation' | null = null,
 ): Promise<DigestResult> {
   const absPath = resolve(filePath);
   const content = readFileSync(absPath, 'utf-8');
@@ -228,6 +237,7 @@ async function processSingleFile(
     pipeline,
     namespace: namespace ?? undefined,
     source_file: absPath,
+    treat_as: treatAs ?? undefined,
   });
 
   // Update frontmatter with digest results if file had frontmatter.
@@ -349,7 +359,7 @@ export async function runDigest(args: string[]): Promise<void> {
     const { store, embed, llm } = createProviders(config, namespace);
 
     process.stderr.write(`[digest] namespace: ${namespaceLabel(namespace)}\n`);
-    await processSingleFile(absPath, parsed.pipeline, namespace || null, store, embed, llm);
+    await processSingleFile(absPath, parsed.pipeline, namespace || null, store, embed, llm, parsed.treatAs);
     return;
   }
 
@@ -395,6 +405,7 @@ export async function runDigest(args: string[]): Promise<void> {
         store,
         embed,
         llm,
+        parsed.treatAs,
       );
       totalObservations += result.observation_ids.length;
       totalInsights += result.insights.length;

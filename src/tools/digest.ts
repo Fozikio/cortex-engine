@@ -25,6 +25,11 @@ export const digestTool: ToolDefinition = {
       },
       namespace: { type: 'string', description: 'Target namespace (defaults to default)' },
       salience: { type: 'number', description: 'Salience override 0.0-1.0 (default: auto-detect)' },
+      treat_as: {
+        type: 'string',
+        enum: ['fact', 'speculation'],
+        description: 'Override the frontmatter-based decision: "fact" stores declarative extractions as facts, "speculation" stores them as speculative. Default: frontmatter type/tags decide (workshop/experiment/fiction types and experiment/style-transfer/humor/debate tags → speculation).',
+      },
     },
     required: ['content'],
   },
@@ -41,11 +46,15 @@ export const digestTool: ToolDefinition = {
     const store: CortexStore = ctx.namespaces.getStore(namespace);
     const resolvedNs = namespace ?? ctx.namespaces.getDefaultNamespace();
 
+    const treatAsRaw = optStr(args, 'treat_as');
+    const treat_as = treatAsRaw === 'fact' || treatAsRaw === 'speculation' ? treatAsRaw : undefined;
+
     const result = await digestDocument(content, store, ctx.embed, ctx.llm, {
       pipeline,
       namespace: resolvedNs,
       source_file: sourceFile,
       salience,
+      treat_as,
     });
 
     await fireTriggers(ctx, resolvedNs, 'observe', content, { observation_ids: result.observation_ids }, ctx.allTools);

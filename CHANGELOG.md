@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+## [1.6.0] — 2026-09-13
+
+### Added
+
+- **Digest carries document provenance and refuses to store fiction as fact.** (#84)
+
+  `digestDocument` parsed frontmatter for salience and dropped `type` and `tags`. So an observation extracted from a style-transfer exercise, a cross-model debate, a dream journal or a self-roast was stored with the same `declarative` content type and the same provenance shape as one from a journal. On one live store a sentence the agent wrote *imitating its owner* — "he learned more about my music in 20 minutes than most people" — was extracted as a fact about the owner, promoted to a memory, and refined by a later dream into "uniquely talented … distinct learning capability". The trace back to the file was only possible because `source_files` existed; nothing said *what kind* of file.
+
+  Observations now carry `source_type` (frontmatter `type`, lower-cased) and `source_tags`. `classifyDocument` decides from them whether the document's claims are the author's facts: a `type` of workshop / experiment / creative / fiction / draft / exercise, or a tag among experiments, style-transfer, impersonation, cross-model, debate, dreams, humor, satire, fiction, roleplay, makes it *speculation*, and every observation the document produces that would have been `declarative` is stored `speculative` instead — so dream never refines a fact out of it. Implemented as one store wrapper around the whole pipeline (`withDocProvenance`) rather than a parameter threaded through four steps and six write sites. `treat_as: 'fact' | 'speculation'` on `DigestOptions`, the `digest` tool and `fozikio digest --treat-as` override the decision in either direction.
+
+  The extract prompt now keeps the speaker in the item ("GPT-4o argued that…", "Written in Virgil's voice: …") instead of normalising another voice's claim into a bare statement.
+
+  SQLite gains two nullable columns via the existing `addColumn` migration; JSON and Firestore stores carry the fields as-is. Existing observations are untouched (`source_type` null).
+
 ## [1.5.3] — 2026-09-13
 
 ### Fixed

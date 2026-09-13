@@ -117,6 +117,7 @@ interface ObservationRow {
   keywords: string; content_type: string | null;
   prov_model_id: string | null; prov_model_family: string | null;
   prov_client: string | null; prov_agent: string | null;
+  source_type: string | null; source_tags: string | null;
 }
 
 interface EdgeRow {
@@ -201,6 +202,8 @@ function rowToObservation(r: ObservationRow): Observation {
     keywords: parseJSON<string[]>(r.keywords, []),
     provenance: prov(r),
     content_type: (r.content_type as Observation['content_type']) ?? 'declarative',
+    source_type: r.source_type ?? undefined,
+    source_tags: r.source_tags ? parseJSON<string[]>(r.source_tags, []) : undefined,
   };
 }
 
@@ -379,6 +382,8 @@ export class SqliteCortexStore implements CortexStore {
   /** Add columns introduced after initial schema. Safe to run repeatedly (no-ops on new DBs). */
   private migrateSchema(): void {
     this.addColumn(this.t('observations'), `content_type TEXT DEFAULT 'declarative'`);
+    this.addColumn(this.t('observations'), 'source_type TEXT');
+    this.addColumn(this.t('observations'), 'source_tags TEXT');
     // Retrieval feedback fields consumed by the dream pipeline's FSRS rating
     // (see engines/cognition.ts). Older schemas dropped these silently.
     this.addColumn(this.t('memories'), 'last_retrieval_score REAL');
@@ -640,10 +645,11 @@ export class SqliteCortexStore implements CortexStore {
     this.db.prepare(`INSERT INTO ${this.t('observations')} (
       id, content, source_file, source_section, salience, processed,
       prediction_error, created_at, updated_at, embedding, keywords,
-      content_type, prov_model_id, prov_model_family, prov_client, prov_agent
+      content_type, prov_model_id, prov_model_family, prov_client, prov_agent,
+      source_type, source_tags
     ) VALUES (
       @id, @content, @sf, @ss, @sal, @proc, @pe, @ca, @ua, @emb, @kw,
-      @ct, @pmi, @pmf, @pc, @pa
+      @ct, @pmi, @pmf, @pc, @pa, @st, @stags
     )`).run({
       id, content: obs.content, sf: obs.source_file, ss: obs.source_section,
       sal: obs.salience, proc: obs.processed ? 1 : 0,
@@ -654,6 +660,8 @@ export class SqliteCortexStore implements CortexStore {
       ct: obs.content_type ?? 'declarative',
       pmi: obs.provenance?.model_id ?? null, pmf: obs.provenance?.model_family ?? null,
       pc: obs.provenance?.client ?? null, pa: obs.provenance?.agent ?? null,
+      st: obs.source_type ?? null,
+      stags: obs.source_tags ? JSON.stringify(obs.source_tags) : null,
     });
     return id;
   }

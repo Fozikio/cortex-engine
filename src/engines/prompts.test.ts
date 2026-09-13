@@ -34,7 +34,7 @@ describe('prompt registry', () => {
       'classify-category': 1,
       'edge-discover-pair': 1,
       'edge-discover-graph': 1,
-      'abstract-synthesis': 1,
+      'abstract-synthesis': 2,
       'hindsight-review': 1,
       'dream-report': 1,
       'hyde-expand': 1,

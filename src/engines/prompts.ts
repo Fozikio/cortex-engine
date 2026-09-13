@@ -125,11 +125,12 @@ export const EDGE_DISCOVER_GRAPH = definePrompt<{
 
 /** Phase 6 — cross-domain abstraction synthesis. */
 export const ABSTRACT_SYNTHESIS = definePrompt<{ conceptLines: string }>(
-  'abstract-synthesis', 1, (p) =>
+  'abstract-synthesis', 2, (p) =>
     `Find a higher-level principle or pattern that connects these diverse concepts:\n\n` +
     `${p.conceptLines}\n\n` +
     `Write a concise abstraction (2-4 sentences) that captures the deeper connection. ` +
-    `Be specific — name the pattern and explain why it matters. ` +
+    `Be specific — state the pattern in plain words in the first sentence, then explain why it matters, naming the concepts it connects. ` +
+    `Write plain prose only: no title line, no "Pattern:" label, no markdown, no bullet points. ` +
     `If no meaningful connection exists, respond with 'NO_ABSTRACTION'.`,
 );
 

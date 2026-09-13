@@ -166,6 +166,11 @@ export function stripMarkdownFormatting(text: string): string {
   return text
     .replace(/(^|\n)#{1,6}\s+/g, '$1')
     .replace(/(^|\s)(\*\*|__)(\S(?:[\s\S]*?\S)?)\2/g, '$1$3')
+    // Single-character emphasis, paired and bounded on both sides: `*Title*`
+    // and `_word_`. The boundary requirement keeps `snake_case` identifiers
+    // and a lone `*` used as punctuation untouched.
+    .replace(/(^|[\s(:—–-])\*(\S(?:[^*\n]*?\S)?)\*(?=$|[\s.,;:!?)—–-])/g, '$1$2')
+    .replace(/(^|\s)_(\S(?:[^_\n]*?\S)?)_(?=$|[\s.,;:!?)])/g, '$1$2')
     .trim();
 }
 

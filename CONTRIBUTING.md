@@ -8,9 +8,9 @@ npm run build     # tsc
 npm test          # vitest, 326 tests
 ```
 
-Node 20 or newer (`engines: node >=20`). CI runs the suite on Node 24 across
+Node 22 or newer (`engines: node >=22`). CI runs the suite on Node 24 across
 Ubuntu and Windows, and separately checks that the package still builds and
-tests on Node 20 so the published `engines` claim stays honest.
+tests on Node 22 so the published `engines` claim stays honest.
 
 Windows is in the test matrix on purpose: service supervision is
 platform-specific — detached spawning, `taskkill` and PID handling all differ

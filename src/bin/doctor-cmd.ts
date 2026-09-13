@@ -28,7 +28,7 @@ interface Check {
 
 function checkNode(): Check {
   const major = Number(process.versions.node.split('.')[0]);
-  if (major >= 20) {
+  if (major >= 22) {
     return { group: 'runtime', label: 'node', level: 'ok', detail: `v${process.versions.node}` };
   }
   return {
@@ -36,7 +36,7 @@ function checkNode(): Check {
     label: 'node',
     level: 'error',
     detail: `v${process.versions.node} is below the supported floor`,
-    fix: 'upgrade to Node 20 or newer',
+    fix: 'upgrade to Node 22 or newer',
   };
 }
 

@@ -208,8 +208,12 @@ npm run test:watch
 | `CORTEX_API_TOKEN` | Optional | Used by the `cortex-telemetry` hook to send retrieval feedback to the cortex API. Not required to run the MCP server. |
 | `MOONSHOT_API_KEY` | Optional | Required when `llm: kimi` is set. Get one from [platform.moonshot.cn](https://platform.moonshot.cn). |
 | `OPENAI_API_KEY` | Optional | Required when `llm: openai` is set, or when using any OpenAI-compatible provider without an explicit API key. |
+| `CORTEX_STORE` | Optional | `sqlite` \| `firestore`. Overrides the config file — meant for containers that ship no config. |
+| `CORTEX_EMBED` | Optional | `built-in` \| `ollama` \| `vertex`. Same precedence as above. |
+| `CORTEX_LLM` | Optional | `ollama` \| `gemini` \| `anthropic` \| `openai` \| `kimi`. Same precedence as above. |
+| `CORTEX_SQLITE_PATH` | Optional | Path to the SQLite file, e.g. a mounted volume (`/data/cortex.db`). |
 
-Additional variables are required depending on which providers you enable (Firestore, Vertex AI, etc.). See `docs/` for provider-specific configuration.
+Additional variables are required depending on which providers you enable (Firestore, Vertex AI, etc.). See `docs/` for provider-specific configuration, and [`docs/deploy-railway.md`](docs/deploy-railway.md) for a hosted deployment with no Ollama.
 
 ## Rules, Skills & Agents
 

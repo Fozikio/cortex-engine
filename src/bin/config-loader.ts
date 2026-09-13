@@ -139,7 +139,85 @@ function applyAgentScope(config: CortexConfig, entry: AgentEntry): CortexConfig 
   return scoped;
 }
 
+const ENV_STORE = new Set<CortexConfig['store']>(['sqlite', 'firestore']);
+const ENV_EMBED = new Set<CortexConfig['embed']>(['built-in', 'ollama', 'vertex']);
+const ENV_LLM = new Set<CortexConfig['llm']>(['ollama', 'gemini', 'anthropic', 'openai', 'kimi']);
+
+/**
+ * Apply environment-variable overrides on top of a loaded config.
+ *
+ * Containers and one-click deploys (Railway, Fly, Cloud Run) rarely ship a
+ * config file, so without this a hosted server silently falls back to
+ * `llm: ollama` and every LLM-backed tool fails at first use. Env wins over
+ * the file — the usual twelve-factor precedence.
+ *
+ *   CORTEX_STORE        sqlite | firestore
+ *   CORTEX_EMBED        built-in | ollama | vertex
+ *   CORTEX_LLM          ollama | gemini | anthropic | openai | kimi
+ *   CORTEX_SQLITE_PATH  path to the SQLite file (store_options.sqlite_path)
+ *
+ * Unknown values are ignored with a warning rather than crashing the server:
+ * a typo in a deploy panel should not take the whole service down.
+ */
+export function applyEnvOverrides(
+  config: CortexConfig,
+  env: NodeJS.ProcessEnv = process.env,
+): CortexConfig {
+  const out: CortexConfig = { ...config };
+
+  const pick = <T extends string>(name: string, allowed: Set<T>): T | undefined => {
+    const raw = env[name]?.trim();
+    if (!raw) return undefined;
+    if (allowed.has(raw as T)) return raw as T;
+    console.error(
+      `[cortex-engine] Ignoring ${name}="${raw}" — expected one of: ${[...allowed].join(', ')}`,
+    );
+    return undefined;
+  };
+
+  const store = pick('CORTEX_STORE', ENV_STORE);
+  if (store) out.store = store;
+
+  const embed = pick('CORTEX_EMBED', ENV_EMBED);
+  if (embed) out.embed = embed;
+
+  const llm = pick('CORTEX_LLM', ENV_LLM);
+  if (llm) out.llm = llm;
+
+  const sqlitePath = env['CORTEX_SQLITE_PATH']?.trim();
+  if (sqlitePath) {
+    out.store_options = { ...out.store_options, sqlite_path: sqlitePath };
+  }
+
+  return out;
+}
+
+/**
+ * Load config from disk (search order in the file header) and apply env
+ * overrides on top. Returns defaults + env when no file is found.
+ */
 export function loadConfig(cwd: string = process.cwd(), agentName?: string): CortexConfig {
+  const fromFile = loadFileConfig(cwd, agentName);
+
+  if (!fromFile && agentName) {
+    console.error(`[cortex-engine] Agent "${agentName}" requested but no config file found.`);
+    process.exit(1);
+  }
+
+  const config = applyEnvOverrides(fromFile ?? DEFAULT_CONFIG);
+
+  if (!fromFile) {
+    console.error(
+      `[cortex-engine] No config file found, using defaults ` +
+      `(store=${config.store}, embed=${config.embed}, llm=${config.llm})`,
+    );
+  }
+
+  return config;
+}
+
+/** Read the first config file found; null when none exists. */
+function loadFileConfig(cwd: string, agentName?: string): CortexConfig | null {
   const searchPaths = [
     resolve(cwd, '.fozikio', 'agent.yaml'),
     resolve(cwd, '.fozikio', 'config.yaml'),
@@ -203,11 +281,6 @@ export function loadConfig(cwd: string = process.cwd(), agentName?: string): Cor
     }
   }
 
-  // No config found — use defaults
-  if (agentName) {
-    console.error(`[cortex-engine] Agent "${agentName}" requested but no config file found.`);
-    process.exit(1);
-  }
-  console.error('[cortex-engine] No config file found, using defaults (sqlite + ollama)');
-  return DEFAULT_CONFIG;
+  // No config found — the caller decides what that means.
+  return null;
 }

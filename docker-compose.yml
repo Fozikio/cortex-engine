@@ -3,8 +3,9 @@
 # Cortex API: http://localhost:8080
 # Firestore UI: http://localhost:8180
 #
-# Connect to Claude Code MCP:
-#   Add to .mcp.json: { "cortex": { "url": "http://localhost:8080" } }
+# This serves the REST API. It is not an MCP endpoint: Claude Code's `.mcp.json`
+# needs the stdio server (`cortex-engine`) or an MCP-over-HTTP transport, which
+# the REST server does not expose yet (#92).
 #
 # Requires CORTEX_API_TOKEN in the environment; requests send it as x-cortex-token.
 

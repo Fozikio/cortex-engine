@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Provider selection from the environment, for containers that ship no config file.** `CORTEX_STORE`, `CORTEX_EMBED`, `CORTEX_LLM` and `CORTEX_SQLITE_PATH` override the config file (env wins, twelve-factor style). Before this, a hosted image with no `cortex.config.yaml` fell through to the defaults and got `llm: ollama` — the health check reported green and every LLM-backed tool failed at first use. Unknown values are ignored with a warning rather than crashing the service. The "no config file" message now prints the effective providers instead of asserting "sqlite + ollama".
+- `railway.json` and `docs/deploy-railway.md`: a hosted REST deployment with one volume and an API-key LLM provider, no Ollama.
+
+### Fixed
+
+- `docker-compose.yml` claimed the REST port could be used as a `.mcp.json` URL. It cannot; the REST server exposes no MCP transport.
+
 ## [1.6.0] — 2026-09-13
 
 ### Added

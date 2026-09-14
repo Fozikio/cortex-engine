@@ -14,6 +14,7 @@ import { deriveName } from '../engines/naming.js';
 import { adjudicateContradiction, MAX_CONFIDENCE_PENALTY } from '../engines/adjudicate.js';
 import { SALIENCE_SCORE } from '../engines/prompts.js';
 import { str, optStr, optBool, fireTriggers, fireBridges } from './_helpers.js';
+import { normalizeSalience } from '../engines/salience.js';
 
 export const observeTool: ToolDefinition = {
   name: 'observe',
@@ -48,14 +49,14 @@ export const observeTool: ToolDefinition = {
     // Auto-score importance when salience not explicitly provided
     let salience: number;
     if (typeof args['salience'] === 'number') {
-      salience = args['salience'];
+      salience = normalizeSalience(args['salience']);
     } else {
       try {
         const scoreResult = await ctx.llm.generateJSON<{ composite: number }>(
           SALIENCE_SCORE.build({ text }),
           { temperature: 0.1, schema: { type: 'object', properties: { composite: { type: 'number' } }, required: ['composite'] } },
         );
-        salience = scoreResult.composite ?? 0.5;
+        salience = normalizeSalience(scoreResult.composite, 0.5);
       } catch {
         salience = 0.5;
       }

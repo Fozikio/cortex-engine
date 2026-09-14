@@ -5,6 +5,7 @@
 import type { ToolDefinition } from '../mcp/tools.js';
 import { extractKeywords } from '../engines/keywords.js';
 import { str, optStr, optNum, fireTriggers, fireBridges } from './_helpers.js';
+import { normalizeSalience } from '../engines/salience.js';
 
 export const speculateTool: ToolDefinition = {
   name: 'speculate',
@@ -25,7 +26,7 @@ export const speculateTool: ToolDefinition = {
   async handler(args, ctx) {
     const text = str(args, 'text');
     const namespace = optStr(args, 'namespace');
-    const salience = optNum(args, 'salience', 0.5);
+    const salience = normalizeSalience(optNum(args, 'salience', 0.5));
     const basis = optStr(args, 'basis') ?? '';
 
     const store = ctx.namespaces.getStore(namespace);

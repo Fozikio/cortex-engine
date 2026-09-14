@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.7.1] — 2026-09-14
+
+### Fixed
+
+- **Digest and reflect wrote 1–10 into the 0–1 salience field, and ranking multiplied it straight through.**
+
+  `detectSalience` scored a document 5–7 by design — its comment said "the 1–10 scale used by observe", which observe had not used for a long time — the observe / reflect / predict steps subtracted whole points from that and stored the result, and the `reflect` tool stored a literal 6. Only the extract step divided by 10. The ranking factor in `query` and `context` is `0.5 + salience * 0.5`, so a memory minted from one of those observations carried a factor of 3–5 against a ceiling of 1 and outranked every relevant neighbour: on one live store a 7.0 memory with similarity 0.41 sat above a 0.55 match, the L0 context tier (`salience × retrievability`) put a 9.0 memory first in every session, and 15 of 679 memories (3.0–9.0) plus 70 of 3,222 observations were on the wrong scale — 41 of them unprocessed from the 2026-09-13 journal backfill, waiting for the next dream to mint them. `fozikio memory maintain` knew the field was 0–1 but repaired by clamping, which would have turned a mundane 5.0 chunk into a 1.0 memory of maximum importance.
+
+  `normalizeSalience` (new, `src/engines/salience.ts`) treats any value above 1 as the legacy scale and divides by 10, then clamps to [0, 1]. Digest now scores on 0–1 throughout (0.7 active / journal / mind, 0.6 knowledge or long, 0.5 otherwise; chunks at −0.2, reflect and predict items at −0.1, floor 0.1) and normalises an explicit override, so a frontmatter `salience: 8` still means 0.8. `reflect` stores 0.6. The `observe`, `wonder`, `speculate` and `digest` tools normalise their `salience` argument and observe normalises the LLM auto-score. The dream create phase normalises an observation's salience at promotion, so legacy unprocessed observations mint correctly with no store rewrite. `query` and all three `context` tiers normalise before computing the factor, so a legacy memory stops hijacking ranking before any repair runs. `maintain fix` repairs an out-of-range memory by scale instead of by clamp.
+
 ## [1.7.0] — 2026-09-13
 
 ### Added

@@ -21,6 +21,7 @@ import type { Observation } from '../core/types.js';
 import { predictionErrorGate } from './memory.js';
 import { extractKeywords } from './keywords.js';
 import { chunkDocument } from './chunk.js';
+import { normalizeSalience } from './salience.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -198,7 +199,8 @@ function parseDocument(content: string): ParsedDocument {
 
 /**
  * Estimate salience from document structure and metadata.
- * Returns a value on the 1–10 scale used by observe.
+ * Returns a value on the 0–1 scale the store uses. A frontmatter override may
+ * still carry the legacy 1–10 number; normalizeSalience folds it.
  */
 function detectSalience(
   frontmatter: Record<string, unknown>,
@@ -206,27 +208,27 @@ function detectSalience(
 ): number {
   // Frontmatter can override directly.
   if (typeof frontmatter['salience'] === 'number') {
-    return Math.min(10, Math.max(1, frontmatter['salience'] as number));
+    return normalizeSalience(frontmatter['salience']);
   }
 
   // Status hints.
   const status = typeof frontmatter['status'] === 'string'
     ? (frontmatter['status'] as string).toLowerCase()
     : '';
-  if (status === 'active') return 7;
-  if (status === 'archived') return 3;
+  if (status === 'active') return 0.7;
+  if (status === 'archived') return 0.3;
 
   // Type hints.
   const type = typeof frontmatter['type'] === 'string'
     ? (frontmatter['type'] as string).toLowerCase()
     : '';
-  if (type === 'mind' || type === 'journal') return 7;
-  if (type === 'knowledge') return 6;
+  if (type === 'mind' || type === 'journal') return 0.7;
+  if (type === 'knowledge') return 0.6;
 
   // Fall back to content length heuristic.
-  if (body.length > 3000) return 7;
-  if (body.length > 1000) return 6;
-  return 5;
+  if (body.length > 3000) return 0.7;
+  if (body.length > 1000) return 0.6;
+  return 0.5;
 }
 
 // ─── Observe Step ─────────────────────────────────────────────────────────────
@@ -288,7 +290,7 @@ async function runObserveStep(
       }
     })();
 
-    const chunkSalience = Math.max(1, salience - 2);
+    const chunkSalience = Math.max(0.1, salience - 0.2);
 
     for (const chunk of chunks) {
       try {
@@ -403,7 +405,7 @@ async function runReflectStep(
           content: insight,
           source_file: sourceFile,
           source_section: 'digest:reflect',
-          salience: Math.max(1, salience - 1),
+          salience: Math.max(0.1, salience - 0.1),
           processed: false,
           prediction_error: null,
           created_at: new Date(),
@@ -473,7 +475,7 @@ async function runPredictStep(
           content: prediction,
           source_file: sourceFile,
           source_section: 'digest:predict',
-          salience: Math.max(1, salience - 1),
+          salience: Math.max(0.1, salience - 0.1),
           processed: false,
           prediction_error: null,
           created_at: new Date(),
@@ -560,7 +562,7 @@ async function runExtractStep(
         const contentType = CONTENT_TYPE_MAP[item.type] ?? 'declarative';
         const itemSalience = typeof item.salience === 'number'
           ? Math.min(0.9, Math.max(0.3, item.salience))
-          : salience / 10;
+          : salience;
 
         if (gate.decision === 'merge') continue; // Already known — skip
 
@@ -620,7 +622,7 @@ export async function digestDocument(
   const pipeline = options?.pipeline ?? ['observe', 'reflect'];
   const sourceFile = options?.source_file ?? '';
   const { frontmatter, body } = parseDocument(content);
-  const salience = options?.salience ?? detectSalience(frontmatter, body);
+  const salience = normalizeSalience(options?.salience ?? detectSalience(frontmatter, body));
 
   // Every observation this document produces carries its type and tags, and a
   // non-factual document never yields a declarative observation. Shadowing

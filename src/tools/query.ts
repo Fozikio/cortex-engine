@@ -11,6 +11,7 @@ import {
 } from '../engines/memory.js';
 import { retrievability, elapsedDaysSince } from '../engines/fsrs.js';
 import { str, optStr, optNum, optBool, fireTriggers, fireBridges } from './_helpers.js';
+import { normalizeSalience } from '../engines/salience.js';
 
 export const queryTool: ToolDefinition = {
   name: 'query',
@@ -95,7 +96,7 @@ export const queryTool: ToolDefinition = {
 
         // Composite score: similarity * retrievability * salience factor
         // Salience is 0-1, boost it so mid-salience memories aren't penalized too hard
-        const salienceFactor = 0.5 + (r.memory.salience * 0.5); // maps 0-1 → 0.5-1.0
+        const salienceFactor = 0.5 + normalizeSalience(r.memory.salience) * 0.5; // maps 0-1 → 0.5-1.0
         const compositeScore = r.score * ret * salienceFactor;
 
         return {

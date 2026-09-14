@@ -5,12 +5,19 @@
 ```bash
 npm ci
 npm run build     # tsc
-npm test          # vitest, 326 tests
+npm test          # vitest
 ```
 
 Node 22 or newer (`engines: node >=22`). CI runs the suite on Node 24 across
 Ubuntu and Windows, and separately checks that the package still builds and
 tests on Node 22 so the published `engines` claim stays honest.
+
+**Windows without Visual Studio Build Tools:** `npm ci` fails compiling
+`better-sqlite3` even though the package ships prebuilt binaries — npm's `ci`
+path ignores the package's `gypfile: false` and runs the implicit
+`node-gyp rebuild`. `npm install` reads the manifest and uses the prebuild.
+Use `npm install` instead (the lockfile is still honoured), or install the
+MSVC C++ workload. Consumers of the published package are unaffected.
 
 Windows is in the test matrix on purpose: service supervision is
 platform-specific — detached spawning, `taskkill` and PID handling all differ

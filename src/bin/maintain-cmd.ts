@@ -18,6 +18,7 @@ import { loadConfig } from './config-loader.js';
 import { createStore, createEmbedProvider } from './store-factory.js';
 import { parseNamespaceArgs, resolveNamespace, namespaceLabel } from './namespace-resolver.js';
 import type { Memory, Observation } from '../core/types.js';
+import { normalizeSalience, isOutOfRangeSalience } from '../engines/salience.js';
 
 // ─── Arg Parsing ─────────────────────────────────────────────────────────────
 
@@ -159,9 +160,9 @@ async function runFix(args: MaintainArgs): Promise<void> {
     }
 
     // Check 4: Salience out of range
-    if (typeof memory.salience === 'number' && (memory.salience < 0 || memory.salience > 1)) {
+    if (isOutOfRangeSalience(memory.salience)) {
       issues.push(`salience out of range: ${memory.salience}`);
-      fixes['salience'] = Math.max(0, Math.min(1, memory.salience));
+      fixes['salience'] = normalizeSalience(memory.salience);
     }
 
     // Check 5: Null access_count

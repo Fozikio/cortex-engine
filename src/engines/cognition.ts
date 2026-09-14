@@ -53,6 +53,7 @@ import {
   DREAM_REPORT,
   MEMORY_CATEGORIES,
 } from './prompts.js';
+import { normalizeSalience } from './salience.js';
 
 // Module-level counter shared across dream phases. dreamConsolidate /
 // dreamPhaseA / dreamPhaseB reset it at the top of the cycle and read it
@@ -564,7 +565,7 @@ async function createFromUnclustered(
           name,
           definition: obs.content,
           category,
-          salience: obs.salience,
+          salience: normalizeSalience(obs.salience),
           confidence: 0.5,
           access_count: 0,
           created_at: new Date(),

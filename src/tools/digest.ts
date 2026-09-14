@@ -37,7 +37,7 @@ export const digestTool: ToolDefinition = {
     const content = str(args, 'content');
     const sourceFile = optStr(args, 'source_file');
     const namespace = optStr(args, 'namespace');
-    const salience = args['salience'] !== undefined ? optNum(args, 'salience', 5) : undefined;
+    const salience = args['salience'] !== undefined ? optNum(args, 'salience', 0.5) : undefined;
     const rawPipeline = args['pipeline'];
     const pipeline = Array.isArray(rawPipeline)
       ? (rawPipeline as unknown[]).filter((s): s is string => typeof s === 'string')

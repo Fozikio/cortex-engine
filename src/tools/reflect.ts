@@ -55,7 +55,7 @@ export const reflectTool: ToolDefinition = {
       content: reflection,
       source_file: '',
       source_section: `reflection:${topic}`,
-      salience: 6,
+      salience: 0.6,
       processed: false,
       prediction_error: null,
       created_at: new Date(),

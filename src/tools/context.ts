@@ -28,6 +28,7 @@ import type { ToolDefinition } from '../mcp/tools.js';
 import { hydeExpand, spreadActivation, multiAnchorRetrieval } from '../engines/memory.js';
 import { retrievability, elapsedDaysSince } from '../engines/fsrs.js';
 import { str, optStr, optBool } from './_helpers.js';
+import { normalizeSalience } from '../engines/salience.js';
 
 type Tier = 'L0' | 'L1' | 'L2';
 
@@ -72,7 +73,7 @@ export const contextTool: ToolDefinition = {
           ? elapsedDaysSince(r.memory.fsrs.last_review)
           : 0;
         const ret = retrievability(r.memory.fsrs.stability, daysSince);
-        return { r, score: r.memory.salience * ret };
+        return { r, score: normalizeSalience(r.memory.salience) * ret };
       });
 
       const top = scored
@@ -107,7 +108,7 @@ export const contextTool: ToolDefinition = {
             ? elapsedDaysSince(r.memory.fsrs.last_review)
             : 0;
           const ret = retrievability(r.memory.fsrs.stability, daysSince);
-          const salienceFactor = 0.5 + r.memory.salience * 0.5;
+          const salienceFactor = 0.5 + normalizeSalience(r.memory.salience) * 0.5;
           const compositeScore = r.score * ret * salienceFactor;
 
           const edges = await store.getEdgesFrom(r.memory.id);
@@ -162,7 +163,7 @@ export const contextTool: ToolDefinition = {
           ? elapsedDaysSince(memory.fsrs.last_review)
           : 0;
         const ret = retrievability(memory.fsrs.stability, daysSince);
-        const salienceFactor = 0.5 + memory.salience * 0.5;
+        const salienceFactor = 0.5 + normalizeSalience(memory.salience) * 0.5;
         const compositeScore = r.score * ret * salienceFactor;
 
         const edges = await store.getEdgesFrom(memory.id);

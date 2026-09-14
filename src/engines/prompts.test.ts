@@ -35,7 +35,7 @@ describe('prompt registry', () => {
       'edge-discover-pair': 1,
       'edge-discover-graph': 1,
       'abstract-synthesis': 2,
-      'hindsight-review': 1,
+      'hindsight-review': 2,
       'dream-report': 1,
       'hyde-expand': 1,
       'adjudicate-contradiction': 2,

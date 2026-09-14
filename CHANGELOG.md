@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [1.7.0] — 2026-09-13
 
 ### Added
 
@@ -8,6 +8,16 @@
 - `railway.json` and `docs/deploy-railway.md`: a hosted REST deployment with one volume and an API-key LLM provider, no Ollama.
 
 ### Fixed
+
+- **Digest chunks on paragraph and sentence boundaries, never mid-word.** (#96)
+
+  The observe step windowed a long document at fixed character offsets — the first 2,000 characters as the summary observation, then 500-character slices — and each slice was embedded, prediction-error gated and stored as a declarative observation. On one live store two of five sampled observations from a journal backfill began mid-word ("ing the model the neighbour…", "l through to its heuristic…"), and the next dream minted memories from them. `chunkDocument` (new, `src/engines/chunk.ts`) now packs whole paragraphs up to the target size, falls back to sentence boundaries when a paragraph is longer than the target, splits on whitespace only when a single sentence is, and merges any chunk shorter than 120 characters into its neighbour. Targets are 2,000 characters for the head and 600 for the rest; a boundary always wins over the count. Documents of 2,000 characters or less are stored whole, as before.
+
+- **Hindsight defaults to no change, and a rewrite that loses a specific is declined.** (#98)
+
+  The 2026-09-13 attended dream reviewed five entrenched memories and revised five. Three were the damage class #86 fixed in refine, in a different phase: first person became third ("Gave Gemini Pro my profile…" → "A process where a user provides personal information to an AI model…"), a number was dropped, and a precise fact about `.mcp.json` interpolation gained "but only in configurations where the underlying runtime explicitly supports such interpolation". The prompt asked what a definition "assumes" or "lacks", and a precise memory is exactly the one a critic can always hedge; nothing in the phase ever chose "leave it alone".
+
+  Three changes. The prompt (`hindsight-review` v2) states that no change is the default, that a concern must be grounded in a listed connected concept or the belief history and name it in a new `cited` field, and carries the #86 preservation rules. The phase ignores any review whose citation matches nothing in the store — with no neighbours and no history, nothing can change. And a proposed rewrite runs through `checkRewrite` (new, `src/engines/rewrite-guard.ts`): dropped numbers or quotations, first person to third, the name restated as an opener, entities absent from the old definition and the cited concept, or added hedges ("but only", "depending on", "acknowledging", …) decline the rewrite, keep the old definition and write no belief row. `HindsightPhaseResult` gains `declined`; the dream report says how many rewrites were declined. `revised` now counts only memories whose confidence or definition changed, not signal-only reviews.
 
 - `docker-compose.yml` claimed the REST port could be used as a `.mcp.json` URL. It cannot; the REST server exposes no MCP transport.
 

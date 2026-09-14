@@ -41,6 +41,7 @@ import {
   stripMarkdownFormatting,
   substituteConceptPlaceholders,
 } from './thought-quality.js';
+import { checkRewrite } from './rewrite-guard.js';
 import {
   REFINE_DEFINITION,
   EDGE_REVALIDATE,
@@ -75,7 +76,7 @@ export interface DreamResult {
     score: { scored: number };
     report: { text: string };
     abstract: { abstractions: number };
-    hindsight?: { reviewed: number; revised: number };
+    hindsight?: { reviewed: number; revised: number; declined?: number };
   };
   total_processed: number;
   duration_ms: number;
@@ -224,6 +225,13 @@ export interface HindsightPhaseResult {
   reviewed: number;
   /** Number of memories where confidence was reduced or definition was revised. */
   revised: number;
+  /**
+   * Number of proposed rewrites the guard refused because they dropped a
+   * number or quotation, shifted first person to third, restated the name
+   * as an opener, or added entities or hedges the cited evidence does not
+   * contain. The old definition is kept and no belief row is written. (#98)
+   */
+  declined: number;
 }
 
 // ─── Phase 1: Cluster ─────────────────────────────────────────────────────────
@@ -1166,6 +1174,28 @@ export async function abstractCrossDomain(
 // ─── Phase 7: Hindsight ───────────────────────────────────────────────────────
 
 /**
+ * A hindsight concern must name what grounds it: one of the connected concepts
+ * the prompt listed, or the belief history when there is one. A citation that
+ * matches nothing in the store is no citation — the model has no evidence
+ * beyond what it was shown, so an ungrounded concern is an opinion. (#98)
+ */
+function groundedCitation(
+  cited: unknown,
+  neighbours: ReadonlyArray<{ name: string; definition: string }>,
+  hasHistory: boolean,
+): { label: string; evidence: string[] } | null {
+  if (typeof cited !== 'string') return null;
+  const wanted = cited.trim().toLowerCase();
+  if (!wanted) return null;
+  if (hasHistory && /\b(history|revision)/.test(wanted)) return { label: 'belief history', evidence: [] };
+  const match = neighbours.find((n) => {
+    const name = n.name.trim().toLowerCase();
+    return name.length > 0 && (wanted.includes(name) || name.includes(wanted));
+  });
+  return match ? { label: match.name, evidence: [match.definition] } : null;
+}
+
+/**
  * Proactively audit memories that have silently hardened through unchallenged reinforcement.
  *
  * Targets memories in 'review' state with high stability, zero lapses, and no existing
@@ -1173,14 +1203,20 @@ export async function abstractCrossDomain(
  * being questioned. For each candidate, an LLM critically examines whether the confidence
  * is earned through diverse evidence or accumulated through narrow confirmation.
  *
- * When concerns are found:
+ * The default outcome is no change. A concern counts only when the model cites a
+ * connected concept or the belief history (#98); on one live store the phase had
+ * revised five of five reviewed memories with reasons like "lacks contextual depth",
+ * turning first person into third and adding qualifiers nothing in the store contained.
+ *
+ * When a grounded concern is found:
  *   - Confidence is reduced by up to 0.25
- *   - Definition is revised if genuinely warranted (logged via putBelief)
+ *   - Definition is revised only if the rewrite passes `checkRewrite` (logged via putBelief);
+ *     a rewrite that loses a specific is declined and the old definition kept
  *   - A TENSION signal is created for follow-up
  *
  * Memories already carrying contradiction/tension edges are skipped — Phase 5 handles those.
  */
-async function hindsightReview(
+export async function hindsightReview(
   store: CortexStore,
   llm: LLMProvider,
   options: DreamOptions,
@@ -1191,12 +1227,13 @@ async function hindsightReview(
 
   let reviewed = 0;
   let revised = 0;
+  let declined = 0;
 
   let allMemories: Memory[];
   try {
     allMemories = await store.getAllMemories();
   } catch {
-    return { reviewed: 0, revised: 0 };
+    return { reviewed: 0, revised: 0, declined: 0 };
   }
 
   // Candidates: well-entrenched (high stability), never challenged (zero lapses),
@@ -1211,7 +1248,7 @@ async function hindsightReview(
       !m.faded,
   );
 
-  if (candidates.length === 0) return { reviewed: 0, revised: 0 };
+  if (candidates.length === 0) return { reviewed: 0, revised: 0, declined: 0 };
 
   // Most entrenched first — those are the highest risk for silent hardening.
   const sample = candidates
@@ -1236,10 +1273,13 @@ async function hindsightReview(
           ? `Belief revisions: ${beliefHistory.length} (most recent reason: "${beliefHistory[beliefHistory.length - 1]?.reason ?? 'unknown'}")`
           : 'No belief revisions — this definition has never been challenged or updated.';
 
-      // Fetch target names for edge context so the LLM can reason about structural neighbourhood.
+      // Fetch target names for edge context so the LLM can reason about structural
+      // neighbourhood — and so a concern can be checked against what it cites.
+      const neighbours: { name: string; definition: string }[] = [];
       const edgeLines = await Promise.all(
         edges.slice(0, 8).map(async (e) => {
           const target = await safeStoreRead(store.getMemory(e.target_id), null, `hindsight:target:${e.target_id}`, _dreamStats);
+          if (target) neighbours.push({ name: target.name, definition: target.definition });
           const label = target ? `"${target.name}"` : e.target_id;
           return `${e.relation}: ${label}`;
         }),
@@ -1260,6 +1300,7 @@ async function hindsightReview(
 
       const result = await llm.generateJSON<{
         concern: string | null;
+        cited: string | null;
         confidence_penalty: number;
         revised_definition: string | null;
         reason: string;
@@ -1269,20 +1310,38 @@ async function hindsightReview(
 
       reviewed++;
 
+      // No change unless the concern is grounded in something the store holds.
+      const citation = groundedCitation(result.cited, neighbours, beliefHistory.length > 0);
+      if (!citation) continue;
+
       const penalty = Math.min(0.25, Math.max(0, result.confidence_penalty ?? 0));
       const newDef = result.revised_definition?.trim();
-      const definitionChanged = newDef && newDef !== memory.definition.trim();
-      const hasConcern = result.concern || penalty > 0.05 || definitionChanged;
+      let applyDefinition = Boolean(newDef) && newDef !== memory.definition.trim();
 
-      if (!hasConcern) continue;
+      // A rewrite must keep everything the old definition committed to; anything
+      // new must come from the cited concept. Otherwise keep the old definition
+      // and spend no belief row on it.
+      if (applyDefinition && newDef) {
+        const guard = checkRewrite({
+          name: memory.name,
+          old: memory.definition,
+          next: newDef,
+          evidence: citation.evidence,
+        });
+        if (!guard.ok) {
+          console.error(`[dream:hindsight] Declined rewrite for ${memory.id} (cited "${citation.label}"): ${guard.reasons.join('; ')}`);
+          declined++;
+          applyDefinition = false;
+        }
+      }
+
+      const applyConfidence = penalty > 0.05;
+      if (!result.concern && !applyConfidence && !applyDefinition) continue;
 
       // Confidence + definition + belief log must commit as one unit
       // so the memory's confidence and definition never disagree with
       // the audit trail. Split paths if only one applies.
-      const applyConfidence = penalty > 0.05;
-      const applyDefinition = definitionChanged && newDef;
-
-      if (applyConfidence && applyDefinition) {
+      if (applyConfidence && applyDefinition && newDef) {
         await store.withTransaction(async (txn) => {
           await txn.putBelief({
             concept_id: memory.id,
@@ -1297,7 +1356,7 @@ async function hindsightReview(
             updated_at: new Date(),
           });
         });
-      } else if (applyDefinition) {
+      } else if (applyDefinition && newDef) {
         await store.withTransaction(async (txn) => {
           await txn.putBelief({
             concept_id: memory.id,
@@ -1335,13 +1394,13 @@ async function hindsightReview(
         }
       }
 
-      revised++;
+      if (applyConfidence || applyDefinition) revised++;
     } catch {
       continue;
     }
   }
 
-  return { reviewed, revised };
+  return { reviewed, revised, declined };
 }
 
 /**
@@ -1368,7 +1427,8 @@ async function generateReport(
       ? ` PE saturation: mean_pe=${peSaturation.mean_pe.toFixed(3)}, trend=${peSaturation.trend}${peSaturation.saturated ? ' (SATURATED)' : ''}.`
       : '';
     const hindsightNote = hindsight.reviewed > 0
-      ? ` Hindsight: ${hindsight.reviewed} entrenched memories audited, ${hindsight.revised} revised.`
+      ? ` Hindsight: ${hindsight.reviewed} entrenched memories audited, ${hindsight.revised} revised` +
+        (hindsight.declined > 0 ? `, ${hindsight.declined} rewrites declined.` : '.')
       : '';
 
     const statsLine =
@@ -1461,8 +1521,8 @@ export async function dreamPhaseB(
 
   // Phase 7 — Hindsight: audit entrenched memories for silent confidence hardening.
   const hindsightResult = options.skip_hindsight
-    ? { reviewed: 0, revised: 0 }
-    : await safeStoreRead(hindsightReview(store, llm, options), { reviewed: 0, revised: 0 }, 'hindsight', _dreamStats);
+    ? { reviewed: 0, revised: 0, declined: 0 }
+    : await safeStoreRead(hindsightReview(store, llm, options), { reviewed: 0, revised: 0, declined: 0 }, 'hindsight', _dreamStats);
 
   // Graph health metrics — run in parallel for speed.
   const [fiedlerValue, peSaturation] = await Promise.all([
@@ -1557,8 +1617,8 @@ export async function dreamConsolidate(
   // Phase 7 — Hindsight: audit entrenched memories for silent confidence hardening.
   // Runs after scoring so recently contradiction-penalized memories are already handled.
   const hindsightResult = options.skip_hindsight
-    ? { reviewed: 0, revised: 0 }
-    : await safeStoreRead(hindsightReview(store, llm, options), { reviewed: 0, revised: 0 }, 'hindsight', _dreamStats);
+    ? { reviewed: 0, revised: 0, declined: 0 }
+    : await safeStoreRead(hindsightReview(store, llm, options), { reviewed: 0, revised: 0, declined: 0 }, 'hindsight', _dreamStats);
 
   // Graph health metrics — run in parallel, don't block the report.
   const [fiedlerValue, peSaturation] = await Promise.all([

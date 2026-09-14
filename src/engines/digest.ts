@@ -20,6 +20,7 @@ import type { LLMProvider } from '../core/llm.js';
 import type { Observation } from '../core/types.js';
 import { predictionErrorGate } from './memory.js';
 import { extractKeywords } from './keywords.js';
+import { chunkDocument } from './chunk.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -252,11 +253,14 @@ async function runObserveStep(
     : '';
 
   if (body.length > 2000) {
-    // Long document: summarise first, then observe chunks.
-    // Summary chunk at full salience.
+    // Long document: a boundary-aligned head at full salience, then the rest
+    // in boundary-aligned chunks at reduced salience. Fixed-offset slicing
+    // stored mid-word fragments as observations (#96).
+    const { head, chunks } = chunkDocument(body, { head_chars: 2000, chunk_chars: 600, min_chars: 120 });
+
     await (async () => {
       try {
-        const summaryText = title ? `${title}\n\n${body.slice(0, 2000)}` : body.slice(0, 2000);
+        const summaryText = title ? `${title}\n\n${head}` : head;
         const embedding = await embed.embed(summaryText);
         const gate = await predictionErrorGate(store, embedding);
         const keywords = extractKeywords(summaryText);
@@ -284,12 +288,7 @@ async function runObserveStep(
       }
     })();
 
-    // Remaining body in ~500 char chunks at reduced salience.
     const chunkSalience = Math.max(1, salience - 2);
-    const chunks: string[] = [];
-    for (let i = 2000; i < body.length; i += 500) {
-      chunks.push(body.slice(i, i + 500));
-    }
 
     for (const chunk of chunks) {
       try {

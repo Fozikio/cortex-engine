@@ -21,6 +21,10 @@
 
 - `docker-compose.yml` claimed the REST port could be used as a `.mcp.json` URL. It cannot; the REST server exposes no MCP transport.
 
+### Changed
+
+- **Optional peer ranges for the cloud providers moved to their current majors** (#81): `@google-cloud/aiplatform` ^7.4, `@google-cloud/firestore` ^9.1, `firebase-admin` ^14.3. They are optional peers, so nothing changes for a SQLite + Ollama or built-in-embeddings install. A project that pins an older major of one of them alongside the engine will see npm refuse the install (`ERESOLVE`) — upgrade the pin, or install with `--legacy-peer-deps` until you do. Development toolchain: TypeScript 7, `@types/node` 26.
+
 ## [1.6.0] — 2026-09-13
 
 ### Added

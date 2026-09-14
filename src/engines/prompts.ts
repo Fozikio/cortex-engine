@@ -145,20 +145,20 @@ export const HINDSIGHT_REVIEW = definePrompt<{
   lapses: number;
   historyNote: string;
   edgeSummary: string;
-}>('hindsight-review', 1, (p) =>
-  `You are performing a hindsight review of a belief that has been repeatedly reinforced without ever failing a review or being contradicted.\n\n` +
+}>('hindsight-review', 2, (p) =>
+  `You are performing a hindsight review of a memory that has been repeatedly reinforced without ever failing a review or being contradicted.\n\n` +
   `Memory: "${p.name}"\n` +
   `Definition: ${p.definition}\n` +
   `Category: ${p.category}\n` +
   `Confidence: ${p.confidence.toFixed(2)}, FSRS stability: ${p.stability.toFixed(1)} days, Reps: ${p.reps}, Lapses: ${p.lapses}\n` +
   `${p.historyNote}\n` +
   `Connected concepts:\n${p.edgeSummary}\n\n` +
-  `Critically examine this belief. Consider:\n` +
-  `- Could this have hardened through narrow, self-confirming signals rather than diverse evidence?\n` +
-  `- Is the definition overstated, incomplete, or context-dependent in ways not captured here?\n` +
-  `- Are there implicit assumptions embedded in it that should be made explicit or questioned?\n\n` +
+  `Your default answer is no change. Raise a concern only if a connected concept listed above, or the belief history, shows the definition to be wrong or overstated — and name it in "cited". ` +
+  `"Could add nuance", "lacks context" and "assumes universal support" are not concerns: a precise definition is not a flaw, and you have no evidence beyond what is listed here.\n` +
+  `If you do revise: preserve every number, date, quotation, named person, place, project and file; keep the voice (first person stays first person); ` +
+  `do not restate the memory's name as an opener; do not add qualifiers, exceptions or conditions the cited concept does not contain; do not generalise a specific fact into a category description.\n\n` +
   `Respond with JSON only — no preamble:\n` +
-  `{"concern": "string describing the issue, or null if none", "confidence_penalty": <number 0.0–0.25, use 0.0 if no concern>, "revised_definition": "string or null", "reason": "brief explanation"}`,
+  `{"concern": "string describing the issue, or null", "cited": "the connected concept's name or \\"history\\" that grounds the concern, or null", "confidence_penalty": <number 0.0–0.25, 0.0 if no concern>, "revised_definition": "string, or null unless the cited concept contradicts the definition", "reason": "brief explanation"}`,
 );
 
 /** Phase 8 — narrative report of the cycle. */

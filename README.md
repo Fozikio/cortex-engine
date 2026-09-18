@@ -52,7 +52,7 @@ Works with Claude Code, Cursor, Windsurf, or any MCP-compatible client. Runs loc
 The engine includes defense-in-depth protections for deployed environments:
 
 - **Timing-safe auth** — REST server authentication uses `crypto.timingSafeEqual` to prevent timing side-channel attacks
-- **Plugin sandboxing** — the plugin loader validates import paths against trusted directories, blocking loads from untrusted locations
+- **Plugin sandboxing** — the plugin loader validates import paths against trusted directories, blocking loads from untrusted locations; a path listed in config.yaml's `plugins:` is exempt, since that file is the operator's own and not something a tool call can steer
 - **REST tool blocklist** — destructive tools (`forget`, `dream`, `evolve`, `resolve`, `thread_resolve`) are blocked from the generic REST endpoint; they remain available via MCP for direct agent access
 - **SQLite injection prevention** — namespace names are validated (alphanumeric only), LIMIT clauses are parameterized
 - **Secret leak prevention** — config loader warns when API keys appear in config files instead of environment variables

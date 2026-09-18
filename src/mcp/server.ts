@@ -102,7 +102,9 @@ export async function createContext(config: CortexConfig): Promise<EngineContext
   // 6. Load plugins and merge with core tools
   const coreTools = createTools();
   const coreToolNames = new Set(coreTools.map(t => t.name));
-  const pluginTools = await loadPlugins(config.plugins ?? [], coreToolNames);
+  // config.plugins is the operator's own config.yaml, not a tool argument —
+  // trusted the same way every other config value is (see loader.ts).
+  const pluginTools = await loadPlugins(config.plugins ?? [], coreToolNames, { trusted: true });
   const allTools = [...coreTools, ...pluginTools];
 
   // 7. Build tool context (includes allTools for trigger/bridge pipelines)

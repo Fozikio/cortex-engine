@@ -272,13 +272,21 @@ export const observeTool: ToolDefinition = {
       }
     }
 
-    // High-salience novel observation — create memory immediately
-    if (gate.decision === 'novel' && salience >= 0.7) {
+    // High-salience novel observation — create memory immediately. A `link`
+    // decision joins this path only when the caller gave salience
+    // explicitly (auto-scored salience must not trigger it — the writer
+    // has to mean it, since the gate already found something similar
+    // enough to route through the dream pipeline by default); in that case
+    // the new memory carries a `related` edge to the gate's nearest match
+    // so the two never appear disconnected between here and the next dream.
+    const salienceExplicit = typeof args['salience'] === 'number';
+    if ((gate.decision === 'novel' || (gate.decision === 'link' && salienceExplicit)) && salience >= 0.7) {
       const memName = explicitName ?? await deriveName(text, ctx.llm);
       const category = explicitCategory ?? inferCategory(text);
-      // Memory creation + observation mark-processed must commit together;
-      // a crash between them leaves an orphan memory + the source obs
-      // re-entering the dream pipeline on the next cycle.
+      // Memory creation + observation mark-processed (+ the link edge, when
+      // the decision is 'link') must commit together; a crash between them
+      // leaves an orphan memory + the source obs re-entering the dream
+      // pipeline on the next cycle.
       const memId = await store.withTransaction(async (txn) => {
         const newId = await txn.putMemory({
           name: memName,
@@ -297,6 +305,16 @@ export const observeTool: ToolDefinition = {
           memory_origin: 'organic',
         });
         await txn.markObservationProcessed(id);
+        if (gate.decision === 'link' && gate.nearest_id) {
+          await txn.putEdge({
+            source_id: newId,
+            target_id: gate.nearest_id,
+            relation: 'related',
+            weight: Math.round(gate.max_similarity * 100) / 100,
+            evidence: `observe: link at ${gate.max_similarity.toFixed(2)}`,
+            created_at: new Date(),
+          });
+        }
         return newId;
       });
 
@@ -310,7 +328,9 @@ export const observeTool: ToolDefinition = {
         namespace: namespace ?? ctx.namespaces.getDefaultNamespace(),
         keywords,
         salience,
-        message: 'Novel high-salience observation -> new memory created immediately',
+        message: gate.decision === 'link'
+          ? `Related observation (salience ${salience.toFixed(2)}) -> new memory created and linked (similarity: ${gate.max_similarity.toFixed(2)})`
+          : 'Novel high-salience observation -> new memory created immediately',
       };
 
       const resolvedNs = namespace ?? ctx.namespaces.getDefaultNamespace();

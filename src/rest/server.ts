@@ -12,12 +12,13 @@
  *   cortex-engine --rest --port 3000
  */
 
-import { createServer as createHttpServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { createServer as createHttpServer, type IncomingMessage, type Server as HttpServer, type ServerResponse } from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
 import { readFileSync, existsSync, statSync } from 'node:fs';
 import { join, dirname, extname, resolve, relative, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { EngineContext } from '../mcp/server.js';
+import { createMcpHttpHandler, MCP_PATH } from '../mcp/http.js';
 import type { ToolDefinition } from '../mcp/tools.js';
 import { toToolMetadata } from '../mcp/tools.js';
 
@@ -581,7 +582,7 @@ export interface RestServerOptions {
 export async function startRestServer(
   engine: EngineContext,
   options: RestServerOptions = {},
-): Promise<void> {
+): Promise<HttpServer> {
   const port = options.port ?? 3000;
   const host = options.host ?? '127.0.0.1';
   const token = options.token ?? process.env['CORTEX_API_TOKEN'] ?? process.env['MARTY_API_TOKEN'];
@@ -595,6 +596,8 @@ export async function startRestServer(
       '(--allow-unauthenticated) if an open server is intentional.',
     );
   }
+
+  const mcp = createMcpHttpHandler(engine);
 
   const server = createHttpServer(async (req, res) => {
     const url = new URL(req.url ?? '/', `http://localhost:${port}`);
@@ -615,7 +618,7 @@ export async function startRestServer(
     const dashboardDir = getDashboardDir();
     const hasDashboard = existsSync(join(dashboardDir, 'index.html'));
 
-    if (method === 'GET' && hasDashboard && !url.pathname.startsWith('/api/') && url.pathname !== '/health') {
+    if (method === 'GET' && hasDashboard && !url.pathname.startsWith('/api/') && url.pathname !== '/health' && url.pathname !== MCP_PATH) {
       if (serveStatic(res, url.pathname, dashboardDir)) return;
       // SPA fallback — serve index.html for client-side routes
       if (!extname(url.pathname)) {
@@ -626,6 +629,20 @@ export async function startRestServer(
     // Auth check (skip for /health and dashboard assets)
     if (url.pathname !== '/health' && !checkAuth(req, token, allowUnauthenticated)) {
       errorJson(res, 'Unauthorized', 401);
+      return;
+    }
+
+    // MCP over Streamable HTTP — the full active tool list, as over stdio (the REST blocklist
+    // guards the generic /api/tools endpoint, not an agent's own MCP session).
+    if (url.pathname === MCP_PATH) {
+      try {
+        await mcp.handle(req, res);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        process.stderr.write(`[mcp] ${err instanceof Error ? err.stack ?? message : message}
+`);
+        if (!res.headersSent) errorJson(res, 'Internal server error', 500);
+      }
       return;
     }
 
@@ -651,16 +668,21 @@ export async function startRestServer(
     }
   });
 
+  server.on('close', () => { void mcp.close(); });
+
   return new Promise((resolve) => {
     server.listen(port, host, () => {
+      const address = server.address();
+      const bound = typeof address === 'object' && address ? address.port : port;
       const log = (s: string) => process.stderr.write(s + '\n');
-      log(`  rest api ready · http://${host}:${port}`);
+      log(`  rest api ready · http://${host}:${bound}`);
+      log(`  mcp ready · http://${host}:${bound}${MCP_PATH}`);
       log(`  ${engine.activeTools.length} tools · ${token ? 'auth enabled' : 'auth DISABLED (open)'}`);
       if (existsSync(join(getDashboardDir(), 'index.html'))) {
-        log(`  dashboard · http://localhost:${port}`);
+        log(`  dashboard · http://localhost:${bound}`);
       }
       log('');
-      resolve();
+      resolve(server);
     });
   });
 }

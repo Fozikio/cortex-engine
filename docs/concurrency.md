@@ -31,6 +31,13 @@ the loosest sense (WAL prevents file-level corruption) but they will
 race each other's transactions and produce inconsistent state. Run one
 process per database file.
 
+When several clients need the one store — a main checkout and its
+worktrees each running a Claude Code session, several agents on one host
+— run one `fozikio serve --rest` and point every client at its `/mcp`
+endpoint (MCP over Streamable HTTP, 1.8.0). Each client gets its own MCP
+session; every session's tool calls go through the one engine and the
+one store mutex. That is the supported way to share a SQLite store.
+
 For Firestore the question does not arise — multiple processes against
 the same Firestore database is the normal mode, and Firestore handles
 the cross-process semantics.

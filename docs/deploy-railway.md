@@ -46,9 +46,23 @@ anyone deploying from a fork.
      -d '{"text":"The deploy worked."}'
    ```
 
-   MCP clients (Claude Code, Cursor) cannot point `.mcp.json` at this URL yet: the REST server exposes no MCP
-   transport. That is tracked in [#92](https://github.com/Fozikio/cortex-engine/issues/92); until it lands, a
-   hosted instance is for agents that call HTTP directly, or for the `cortex-telemetry` hook.
+   MCP clients connect to the same service at `/mcp` (Streamable HTTP, 1.8.0). The token goes in a header;
+   Claude Code expands `${CORTEX_API_TOKEN}` from the environment:
+
+   ```json
+   {
+     "mcpServers": {
+       "cortex": {
+         "type": "http",
+         "url": "https://<your-service>.up.railway.app/mcp",
+         "headers": { "x-cortex-token": "${CORTEX_API_TOKEN}" }
+       }
+     }
+   }
+   ```
+
+   Every client session gets its own MCP session over the one engine, so several agents (or several Claude
+   Code sessions on one repo) share one store without each spawning a stdio server on it.
 
 ## Notes
 

@@ -184,7 +184,16 @@ export async function createContext(config: CortexConfig): Promise<EngineContext
 // ─── MCP Server Factory ──────────────────────────────────────────────────────
 
 export async function createServer(config: CortexConfig): Promise<Server> {
-  const { ctx, activeTools } = await createContext(config);
+  return createMcpServer(await createContext(config));
+}
+
+/**
+ * Build an MCP `Server` over an engine that already exists. The SDK binds one `Server` to one
+ * transport, so the HTTP transport builds one of these per client session, all over the same
+ * engine — one process, one store, many sessions (#92).
+ */
+export function createMcpServer(engine: EngineContext): Server {
+  const { ctx, activeTools } = engine;
 
   // Create MCP server
   const version = getPackageVersion();

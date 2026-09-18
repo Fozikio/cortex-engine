@@ -68,7 +68,7 @@ try {
 
 async function startRest(): Promise<void> {
   const engine = await createContext(config);
-  return startRestServer(engine, {
+  await startRestServer(engine, {
     port: restPort,
     host: restHost,
     token: restToken,

@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.8.0] — 2026-09-18
+
+### Added
+
+- **MCP over Streamable HTTP at `/mcp` on the REST server — many sessions, one store.** (#92)
+
+  Until now the only MCP transport was stdio, so every Claude Code session spawned its own server, and two sessions on one repo (a main checkout and a worktree) put two processes on one SQLite file, which `docs/concurrency.md` forbids. A hosted instance (Railway, Cloud Run, the Docker image) was reachable by REST only, which no MCP client speaks. `fozikio serve --rest` now also serves MCP at `/mcp` (`src/mcp/http.ts`): stateful sessions keyed by the SDK's `mcp-session-id`, one `Server` + `StreamableHTTPServerTransport` per client over the one `EngineContext`, the same tool list as stdio (the `/api/tools/:name` blocklist guards the generic REST endpoint, not an agent's own session). Auth is the REST token, in `x-cortex-token` or `Authorization: Bearer`. An unknown session id answers 404 and a non-initialize request with no session 400, as the spec says. `.mcp.json` for a local shared server or a hosted one: `{ "type": "http", "url": "…/mcp", "headers": { "x-cortex-token": "${CORTEX_API_TOKEN}" } }`. `createMcpServer(engine)` builds a `Server` over an existing engine; `createServer(config)` wraps it as before. `startRestServer` returns the `http.Server` (it returned `void`) so a caller can read the bound port or close it; the start-up log names the `/mcp` URL. Tests drive the mounted endpoint with the SDK's own client: initialize → tools/list → tools/call, both auth headers and the 401, two clients with distinct sessions over one engine, the 404/400 cases. `docs/deploy-railway.md`, `docker-compose.yml`, the README and `docs/concurrency.md` say how to use it.
+
+  Observed while proving it against a live store: the first LLM-backed call after ollama loads a 14B model cold took about 80 s, past the SDK client's 60 s default request timeout; warm calls take seconds. A client that may hit a cold model should raise its per-request timeout, or the model should be kept loaded.
+
 ## [1.7.2] — 2026-09-18
 
 ### Fixed

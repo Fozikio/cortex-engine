@@ -11,12 +11,28 @@
  * call happens at all.
  */
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SessionConsolidator, AUTO_THRESHOLD } from './auto-consolidate.js';
+import { SqliteCortexStore } from '../stores/sqlite.js';
 import type { CortexStore } from '../core/store.js';
 import type { NamespaceManager } from '../namespace/manager.js';
 import type { EmbedProvider } from '../core/embed.js';
 import type { LLMProvider } from '../core/llm.js';
+
+// dreamPhaseA is spied, not replaced: the mocked-store tests below rely on
+// its *real* implementation calling store.getUnprocessedObservations (that
+// call is their "Phase A ran" signal), and the real-store block further
+// down wants it to actually run against SqliteCortexStore. Only the call
+// itself is asserted on in either case.
+vi.mock('./cognition.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./cognition.js')>();
+  return { ...actual, dreamPhaseA: vi.fn(actual.dreamPhaseA) };
+});
+import { dreamPhaseA } from './cognition.js';
+
+beforeEach(() => {
+  vi.mocked(dreamPhaseA).mockClear();
+});
 
 /** A store double whose unprocessed-row count a test can seed and drain. */
 function makeMockStore(initialUnprocessed = 0): CortexStore & { unprocessed: number } {
@@ -175,6 +191,44 @@ describe('SessionConsolidator', () => {
     await settle();
   });
 
+  it('flush() waits for an in-flight Phase A run instead of starting a second one', async () => {
+    // Reviewer-confirmed bug: flush() used to re-read the store's count
+    // while a run was already in flight. Rows are only marked processed as
+    // a run finishes, so that count still saw them as unprocessed and
+    // flush() started a second dreamPhaseA over the same rows; the process
+    // then exited after the second one finished, killing the first mid-write
+    // and leaving its duplicate behind.
+    let resolveFirstRun: (() => void) | undefined;
+    const store = {
+      getUnprocessedObservations: vi.fn(() => new Promise((resolve) => {
+        resolveFirstRun = () => resolve([]);
+      })),
+      countUnprocessedObservations: vi.fn(() => Promise.resolve(AUTO_THRESHOLD)),
+      markObservationProcessed: vi.fn(() => Promise.resolve()),
+      getEdgesForMemories: vi.fn(() => Promise.resolve([])),
+      findNearest: vi.fn(() => Promise.resolve([])),
+      getAllMemories: vi.fn(() => Promise.resolve([])),
+    } as unknown as CortexStore;
+    const consolidator = new SessionConsolidator(makeManager({ default: store }), embed, llm);
+
+    consolidator.notifyObservation('default');
+    await settle(); // threshold check resolves, Phase A starts and hangs on the store call
+
+    let flushResolved = false;
+    const flushPromise = consolidator.flush().then(() => { flushResolved = true; });
+    await settle();
+
+    // flush() must not have started (or finished ahead of) a second run.
+    expect(store.getUnprocessedObservations).toHaveBeenCalledTimes(1);
+    expect(flushResolved).toBe(false);
+
+    resolveFirstRun?.();
+    await flushPromise;
+
+    expect(flushResolved).toBe(true);
+    expect(store.getUnprocessedObservations).toHaveBeenCalledTimes(1);
+  });
+
   it('flush() drains namespaces with unprocessed rows', async () => {
     const storeA = makeMockStore(1); // below AUTO_THRESHOLD but nonzero
     const storeB = makeMockStore(0);
@@ -217,5 +271,58 @@ describe('SessionConsolidator', () => {
     await settle();
 
     expect(store.getUnprocessedObservations).not.toHaveBeenCalled();
+  });
+});
+
+describe('SessionConsolidator against a real store', () => {
+  function makeObservation(overrides: Partial<Parameters<SqliteCortexStore['putObservation']>[0]> = {}) {
+    const now = new Date();
+    return {
+      content: 'an observation about the codebase',
+      source_file: '', source_section: '', salience: 0.5,
+      processed: false, prediction_error: null,
+      created_at: now, updated_at: now,
+      embedding: [1, 0, 0], keywords: [],
+      content_type: 'declarative' as const,
+      ...overrides,
+    };
+  }
+
+  it('does not run Phase A when fewer than AUTO_THRESHOLD rows remain unprocessed', async () => {
+    // Ten rows land (as ten observe() calls would), but three are promoted
+    // by hand between them — the way the CLI in the reported bug did —
+    // leaving seven really unprocessed. dreamPhaseA must not run.
+    const store = new SqliteCortexStore(':memory:');
+    const ids: string[] = [];
+    for (let i = 0; i < AUTO_THRESHOLD; i++) {
+      ids.push(await store.putObservation(makeObservation()));
+    }
+    await store.markObservationProcessed(ids[0]!);
+    await store.markObservationProcessed(ids[1]!);
+    await store.markObservationProcessed(ids[2]!);
+    expect(await store.countUnprocessedObservations()).toBe(7);
+
+    const consolidator = new SessionConsolidator(makeManager({ default: store }), embed, llm);
+    consolidator.notifyObservation('default');
+    await settle();
+
+    expect(dreamPhaseA).not.toHaveBeenCalled();
+  });
+
+  it('runs Phase A when AUTO_THRESHOLD rows remain unprocessed', async () => {
+    const store = new SqliteCortexStore(':memory:');
+    for (let i = 0; i < AUTO_THRESHOLD; i++) {
+      await store.putObservation(makeObservation());
+    }
+    expect(await store.countUnprocessedObservations()).toBe(AUTO_THRESHOLD);
+
+    const consolidator = new SessionConsolidator(makeManager({ default: store }), embed, llm);
+    consolidator.notifyObservation('default');
+    await settle();
+
+    expect(dreamPhaseA).toHaveBeenCalledTimes(1);
+    expect(dreamPhaseA).toHaveBeenCalledWith(store, embed, llm, expect.objectContaining({
+      observation_limit: 50,
+    }));
   });
 });

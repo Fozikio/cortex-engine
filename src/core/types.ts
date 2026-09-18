@@ -63,8 +63,17 @@ export interface Memory {
   last_retrieval_score?: number;
   /** Last retrieval hop count (0 = direct match). Set by touchMemory. */
   last_hop_count?: number;
-  /** Memory origin for differentiated FSRS initialization. */
-  memory_origin?: 'organic' | 'dream' | 'abstract';
+  /**
+   * Where the memory came from: written by a caller (`organic`), promoted
+   * from an observation by Phase A (`dream`), synthesised by REM (`abstract`),
+   * or mirrored verbatim from a source outside the store (`source`, #114 —
+   * the codebase-mind: a file, an export, a doc section). A `source` memory
+   * is the text, not a belief about it: dream links, retrieves and
+   * spread-activates it like any other, but never refines, merges into,
+   * reschedules, hindsight-reviews or abstracts from it. The source is
+   * re-mirrored when it changes; nothing in the engine rewrites it.
+   */
+  memory_origin?: 'organic' | 'dream' | 'abstract' | 'source';
 }
 
 export interface MemorySummary {
@@ -79,6 +88,12 @@ export interface MemorySummary {
   tags: string[];
   fsrs: FSRSData;
   provenance?: ModelProvenance;
+  /**
+   * Carried on the summary so a search hit can be told apart by origin
+   * without a second read — the cluster phase needs it to know not to merge
+   * an observation into a `source` memory (#114).
+   */
+  memory_origin?: Memory['memory_origin'];
 }
 
 // ─── Edge ─────────────────────────────────────────────────────────────────────

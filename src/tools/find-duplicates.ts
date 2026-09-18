@@ -7,7 +7,12 @@
  * per scanned memory — must be at least the expected duplicate cluster size
  * or some pairs will be silently dropped.
  *
- * Optionally merges duplicates by keeping the higher-salience entry.
+ * Optionally merges duplicates by keeping the higher-salience entry. A pair
+ * with a `source` memory on either side is reported but never merged (#114):
+ * a merge fades the lower-salience row, and a mirrored file has no
+ * duplicate in the store that could stand in for it — two near-identical
+ * sections of a repo are two sections, and a belief that paraphrases one is
+ * not the section.
  */
 
 import type { ToolDefinition, ToolContext } from '../mcp/tools.js';
@@ -101,7 +106,7 @@ export const findDuplicatesTool: ToolDefinition = {
           similarity: Math.round(candidate.score * 1000) / 1000,
         });
 
-        if (merge) {
+        if (merge && mem.memory_origin !== 'source' && candidate.memory.memory_origin !== 'source') {
           await mergePair(store, mem.id, candidate.memory.id);
           merged_count++;
         }

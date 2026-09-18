@@ -5,6 +5,7 @@
 ### Added
 
 - `observe` and `notice` accept `name`, `category` and `tags`, used verbatim; Phase A keeps them (#114).
+- `memory_origin: 'source'`: a mirrored, verbatim memory that dream links and retrieves but never rewrites, merges or abstracts from (#114). Cluster routes an observation to the nearest memory that is not one, or treats it as novel (it becomes its own memory); refine and hindsight leave it out, score does not reschedule it, abstract never samples it as a member, `find_duplicates` reports a pair with one but never merges it, and `checkRewrite` refuses `origin: 'source'` before any text check. Edge discovery, retrieval and spread activation see it as before. `MemorySummary` now carries `memory_origin`.
 
 ### Changed
 

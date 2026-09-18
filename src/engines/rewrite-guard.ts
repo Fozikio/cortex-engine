@@ -11,7 +11,16 @@
  * checks the post-dream diff ran by hand on one live store. Running them
  * before the write means the old definition is kept and no belief-history
  * row is spent on the damage.
+ *
+ * One input short-circuits the text checks: a memory whose origin is
+ * `source` (#114, a verbatim mirror of a file or a doc section) has no
+ * rewrite that keeps everything it committed to, because what it committed
+ * to is the source's text. The phases already leave source memories out of
+ * their candidate lists; this is the belt to that braces, so a future caller
+ * that reaches the guard with one is refused whatever the rewrite says.
  */
+
+import type { Memory } from '../core/types.js';
 
 export interface RewriteGuardInput {
   /** The memory's name, to catch it being restated as the opener. */
@@ -22,6 +31,8 @@ export interface RewriteGuardInput {
   next: string;
   /** Texts the rewrite may legitimately draw entities and qualifiers from. */
   evidence?: string[];
+  /** The memory's origin; `source` is refused before any text check runs. */
+  origin?: Memory['memory_origin'];
 }
 
 export interface RewriteGuardResult {
@@ -75,6 +86,10 @@ function opensWithName(text: string, name: string): boolean {
  * it names — must survive; anything new must come from the evidence.
  */
 export function checkRewrite(input: RewriteGuardInput): RewriteGuardResult {
+  if (input.origin === 'source') {
+    return { ok: false, reasons: ['source memory: mirrored verbatim, never rewritten'] };
+  }
+
   const { name, old } = input;
   const next = input.next.trim();
   const evidence = (input.evidence ?? []).join(' ');

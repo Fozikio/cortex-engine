@@ -115,6 +115,7 @@ function toMemorySummary(m: Memory): MemorySummary {
     tags: m.tags,
     fsrs: m.fsrs,
     provenance: m.provenance,
+    memory_origin: m.memory_origin,
   };
 }
 

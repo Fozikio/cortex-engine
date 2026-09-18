@@ -26,6 +26,9 @@ interface NamedCortexEntry {
   llm_options?: CortexConfig['llm_options'];
   embed_options?: CortexConfig['embed_options'];
   store_options?: CortexConfig['store_options'];
+  /** Plugin packages or paths (see plugins/loader.ts); lifted onto the config like the provider fields. */
+  plugins?: CortexConfig['plugins'];
+  nli?: CortexConfig['nli'];
 }
 
 /**
@@ -72,6 +75,11 @@ function extractFromNamedCortexMap(cortexMap: Record<string, NamedCortexEntry>):
   if (entry.llm_options) partial.llm_options = entry.llm_options;
   if (entry.embed_options) partial.embed_options = entry.embed_options;
   if (entry.store_options) partial.store_options = entry.store_options;
+  // `plugins` and `nli` sit on CortexConfig beside the provider fields, but until 1.9.1 only the
+  // legacy flat `cortex:` block carried them through: the named map dropped both, so a repo's own
+  // plugin listed under its agent's entry (the 1.9.0 `trusted` path's whole point) never loaded.
+  if (entry.plugins) partial.plugins = entry.plugins;
+  if (entry.nli) partial.nli = entry.nli;
 
   if (entry.cognitive_tools || entry.collections_prefix) {
     partial.namespaces = {

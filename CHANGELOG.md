@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [1.9.1] — 2026-09-18
+
+### Fixed
+
+- `plugins:` (and `nli:`) declared under an agent's entry in the named `cortex:` map of `agent.yaml` now reach `CortexConfig`. `extractFromNamedCortexMap` lifted the provider fields and the tool list but not these two, so only the legacy flat `cortex:` block could name a plugin — the repo-shipped plugin path 1.9.0 opened with `trusted: true` could not be declared from the config that `fozikio init` writes (#114).
+
 ## [1.9.0] — 2026-09-18
 
 ### Added

@@ -10,7 +10,7 @@
  */
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DEFAULT_CONFIG } from '../core/config.js';
@@ -92,6 +92,50 @@ describe('loadConfig with no config file', () => {
         .join('\n');
       expect(printed).toContain('llm=openai');
       expect(printed).not.toContain('sqlite + ollama');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('loadConfig over a named cortex map (agent.yaml)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("lifts the primary entry's plugins and nli onto the config", () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cortex-cfg-'));
+    try {
+      mkdirSync(join(dir, '.fozikio'));
+      writeFileSync(
+        join(dir, '.fozikio', 'agent.yaml'),
+        [
+          'agent:',
+          '  name: ledger',
+          'agents:',
+          '  ledger:',
+          '    namespace: ledger',
+          'cortex:',
+          '  ledger:',
+          '    store: sqlite',
+          '    embed: ollama',
+          '    llm: ollama',
+          '    primary: true',
+          '    collections_prefix: ledger_',
+          '    cognitive_tools: [query, observe]',
+          '    plugins:',
+          '      - ./.fozikio/plugins/codebase-mind/dist/index.js',
+          '    nli:',
+          '      enabled: true',
+          '      url: http://127.0.0.1:11435',
+          '',
+        ].join('\n'),
+      );
+      const config = loadConfig(dir, 'ledger');
+      expect(config.plugins).toEqual(['./.fozikio/plugins/codebase-mind/dist/index.js']);
+      expect(config.nli).toEqual({ enabled: true, url: 'http://127.0.0.1:11435' });
+      expect(config.namespaces.ledger?.collections_prefix).toBe('ledger_');
+      expect(config.namespaces.ledger?.cognitive_tools).toEqual(['query', 'observe']);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

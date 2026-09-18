@@ -129,9 +129,9 @@ export class SessionConsolidator {
       return;
     }
 
-    const store = this.namespaces.getStore(namespace);
     let count: number;
     try {
+      const store = this.namespaces.getStore(namespace);
       count = await this.countUnprocessed(store);
     } catch (err) {
       if (process.env['CORTEX_DEBUG']) {

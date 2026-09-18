@@ -14,8 +14,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SessionConsolidator, AUTO_THRESHOLD } from './auto-consolidate.js';
 import { SqliteCortexStore } from '../stores/sqlite.js';
+import { NamespaceManager as RealNamespaceManager } from '../namespace/manager.js';
 import type { CortexStore } from '../core/store.js';
 import type { NamespaceManager } from '../namespace/manager.js';
+import type { CortexConfig } from '../core/config.js';
 import type { EmbedProvider } from '../core/embed.js';
 import type { LLMProvider } from '../core/llm.js';
 
@@ -274,6 +276,29 @@ describe('SessionConsolidator', () => {
   });
 });
 
+/**
+ * A real NamespaceManager over one real store, so notifyObservation's count
+ * read goes through the actual wiring a live server uses — manager.getStore()
+ * returns a ScopedStore, not the sqlite store directly — instead of the
+ * `makeManager` mock above, which hands back the raw store and so never
+ * exercises ScopedStore.countUnprocessedObservations() at all.
+ */
+function makeRealManager(store: CortexStore, namespace = 'default'): NamespaceManager {
+  const config: CortexConfig = {
+    store: 'sqlite',
+    embed: 'built-in',
+    llm: 'ollama',
+    namespaces: {
+      [namespace]: {
+        description: namespace,
+        cognitive_tools: [],
+        collections_prefix: namespace,
+      },
+    },
+  };
+  return new RealNamespaceManager(config, () => store);
+}
+
 describe('SessionConsolidator against a real store', () => {
   function makeObservation(overrides: Partial<Parameters<SqliteCortexStore['putObservation']>[0]> = {}) {
     const now = new Date();
@@ -302,7 +327,10 @@ describe('SessionConsolidator against a real store', () => {
     await store.markObservationProcessed(ids[2]!);
     expect(await store.countUnprocessedObservations()).toBe(7);
 
-    const consolidator = new SessionConsolidator(makeManager({ default: store }), embed, llm);
+    // Through a real NamespaceManager — notifyObservation → manager.getStore()
+    // → ScopedStore → this sqlite store — not the mock manager that hands
+    // the raw store straight back.
+    const consolidator = new SessionConsolidator(makeRealManager(store), embed, llm);
     consolidator.notifyObservation('default');
     await settle();
 
@@ -316,13 +344,18 @@ describe('SessionConsolidator against a real store', () => {
     }
     expect(await store.countUnprocessedObservations()).toBe(AUTO_THRESHOLD);
 
-    const consolidator = new SessionConsolidator(makeManager({ default: store }), embed, llm);
+    const consolidator = new SessionConsolidator(makeRealManager(store), embed, llm);
     consolidator.notifyObservation('default');
     await settle();
 
+    // Called with the ScopedStore the real manager hands out, not the raw
+    // sqlite store — this is the point: the trigger fired through the real
+    // manager → ScopedStore → sqlite wiring, not a mock standing in for it.
     expect(dreamPhaseA).toHaveBeenCalledTimes(1);
-    expect(dreamPhaseA).toHaveBeenCalledWith(store, embed, llm, expect.objectContaining({
+    expect(dreamPhaseA).toHaveBeenCalledWith(expect.anything(), embed, llm, expect.objectContaining({
       observation_limit: 50,
     }));
+    const [calledStore] = vi.mocked(dreamPhaseA).mock.calls[0]!;
+    expect(calledStore).not.toBe(store); // it's the ScopedStore wrapper, not the raw sqlite store
   });
 });

@@ -146,6 +146,7 @@ function docToSummary(id: string, data: DocumentData): MemorySummary {
       last_review: toDateOrNull(data.fsrs?.last_review),
     },
     provenance: docProvenance(data),
+    memory_origin: data.memory_origin ?? undefined,
   };
 }
 

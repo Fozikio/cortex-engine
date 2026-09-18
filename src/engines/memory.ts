@@ -391,5 +391,6 @@ export function memoryToSummary(memory: Memory): MemorySummary {
     tags: memory.tags,
     fsrs: memory.fsrs,
     provenance: memory.provenance,
+    memory_origin: memory.memory_origin,
   };
 }

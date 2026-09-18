@@ -190,6 +190,7 @@ function rowToSummary(r: MemoryRow): MemorySummary {
       last_review: toDateOrNull(r.fsrs_last_review),
     },
     provenance: prov(r),
+    memory_origin: (r.memory_origin as Memory['memory_origin']) ?? undefined,
   };
 }
 

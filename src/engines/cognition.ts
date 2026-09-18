@@ -60,6 +60,19 @@ import { normalizeSalience } from './salience.js';
 // at the bottom to surface DreamResult.failures. Not thread-safe across
 // concurrent dream() calls — cortex-engine treats consolidation as serial.
 const _dreamStats: PhaseStats = { failures: 0 };
+
+/**
+ * A `source` memory is a verbatim mirror of something outside the store (#114:
+ * a repo's files, exports and doc sections). It sits in the graph like any
+ * other memory — edge discovery, retrieval and spread activation all see it —
+ * but no phase that *changes* a memory or *derives* one from it may pick it:
+ * cluster does not merge an observation into it, refine and hindsight do not
+ * rewrite it, score does not reschedule it, abstract does not sample it. The
+ * source is right by construction and re-mirrored when the source changes;
+ * a rewrite could only make it wrong. Same shape as the `faded` filters, for
+ * a different reason.
+ */
+const isSource = (m: Pick<Memory, 'memory_origin'>): boolean => m.memory_origin === 'source';
 function resetDreamStats(): void { _dreamStats.failures = 0; }
 function dreamFailure(label: string, err: unknown): void {
   console.error(`[dream:${label}]`, err);
@@ -238,9 +251,17 @@ export interface HindsightPhaseResult {
 // ─── Phase 1: Cluster ─────────────────────────────────────────────────────────
 
 /**
- * Route unprocessed observations to the nearest existing memory.
- * Observations above cluster_threshold are linked and marked processed.
- * The rest are returned as unclustered for later phases.
+ * How many neighbours cluster asks for per observation. One was enough when
+ * every memory was a candidate; source memories are not (#114), and a store
+ * that mirrors a repo can hold several of them nearer an observation than
+ * the organic memory it belongs with.
+ */
+const CLUSTER_NEIGHBOURS = 5;
+
+/**
+ * Route unprocessed observations to the nearest existing memory that is not
+ * a source mirror. Observations above cluster_threshold are linked and marked
+ * processed. The rest are returned as unclustered for later phases.
  */
 async function clusterObservations(
   store: CortexStore,
@@ -272,7 +293,17 @@ async function clusterObservations(
     }
 
     try {
-      const nearest = await store.findNearest(obs.embedding, 1);
+      // A source memory never absorbs an observation (#114): clustering
+      // onto it would touch it and hand its text to refine as evidence for
+      // a rewrite. The candidate is the nearest memory that is not a mirror,
+      // so an observation restating a mirrored file still joins the organic
+      // memory about that file when there is one; a few neighbours are
+      // fetched because a mirror of any size fills the top of the ranking.
+      // When no such neighbour clears the threshold the observation is novel
+      // as far as the graph's own memories go: it goes to create and becomes
+      // its own memory, and connect can link it to the mirror afterwards.
+      const neighbours = await store.findNearest(obs.embedding, CLUSTER_NEIGHBOURS);
+      const nearest = neighbours.filter((n) => !isSource(n.memory));
 
       if (nearest.length > 0 && nearest[0].score >= threshold) {
         const nearestMemoryId = nearest[0].memory.id;
@@ -331,6 +362,8 @@ async function clusterObservations(
  *
  * Faded memories are never refined: fading is a deliberate signal that the
  * definition should stop being elaborated, and refining one re-elaborates it.
+ * Source memories are never refined either: the definition is a verbatim
+ * mirror, and the only correct rewrite is the next mirror (#114).
  */
 async function refineMemories(
   store: CortexStore,
@@ -349,7 +382,7 @@ async function refineMemories(
   );
 
   for (const memory of recentMemories) {
-    if (memory.faded) continue;
+    if (memory.faded || isSource(memory)) continue;
     try {
       // Direct evidence from Phase 1 clustering is what refine exists for.
       const directEvidence = clusteredEvidence?.get(memory.id) ?? [];
@@ -840,6 +873,11 @@ async function discoverEdgesLongContext(
 /**
  * Passive FSRS review for memories currently in 'review' or 'learning' state.
  * Recent access = rating 3 (Good); otherwise rating 2 (Hard).
+ *
+ * Source memories are not scheduled (#114): a mirror that nobody has queried
+ * lately is not a belief going stale, and rating it Hard would let its
+ * retrievability decay under the code it mirrors. It keeps whatever FSRS
+ * state it was written with.
  */
 async function scoreMemories(
   store: CortexStore,
@@ -858,6 +896,7 @@ async function scoreMemories(
   const oneDayAgo = Date.now() - 1 * 24 * 60 * 60 * 1000;
 
   const reviewable = allMemories.filter((m) => {
+    if (isSource(m)) return false;
     if (m.fsrs.state !== 'review' && m.fsrs.state !== 'learning' && m.fsrs.state !== 'relearning') {
       return false;
     }
@@ -1053,8 +1092,12 @@ export async function abstractCrossDomain(
   // excluded: fading lowers a memory's salience on purpose, and an
   // abstraction that cites it re-attaches edges to it and pulls it back into
   // the graph — one live run put four edges on intentionally faded rows.
+  // Source memories are excluded too (#114): an abstraction is a belief
+  // derived from its members, and a mirrored file is not a belief to
+  // generalise from. An abstraction built on organic memories may still be
+  // linked to a source memory by connect; it just never cites one as a member.
   const recent = allMemories
-    .filter((m) => !m.faded)
+    .filter((m) => !m.faded && !isSource(m))
     .sort((a, b) => b.updated_at.getTime() - a.updated_at.getTime())
     .slice(0, 60);
 
@@ -1249,7 +1292,9 @@ export async function hindsightReview(
   }
 
   // Candidates: well-entrenched (high stability), never challenged (zero lapses),
-  // repeatedly reinforced (reps >= minReps), trusted (confidence >= 0.7), not faded.
+  // repeatedly reinforced (reps >= minReps), trusted (confidence >= 0.7), not
+  // faded, not source (#114: a mirror's confidence is not earned through
+  // reinforcement, so there is no hardening to audit and no rewrite to offer).
   const candidates = allMemories.filter(
     (m) =>
       m.fsrs.state === 'review' &&
@@ -1257,7 +1302,8 @@ export async function hindsightReview(
       m.fsrs.lapses === 0 &&
       m.fsrs.reps >= minReps &&
       m.confidence >= 0.7 &&
-      !m.faded,
+      !m.faded &&
+      !isSource(m),
   );
 
   if (candidates.length === 0) return { reviewed: 0, revised: 0, declined: 0 };
@@ -1339,6 +1385,7 @@ export async function hindsightReview(
           old: memory.definition,
           next: newDef,
           evidence: citation.evidence,
+          origin: memory.memory_origin,
         });
         if (!guard.ok) {
           console.error(`[dream:hindsight] Declined rewrite for ${memory.id} (cited "${citation.label}"): ${guard.reasons.join('; ')}`);

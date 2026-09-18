@@ -156,6 +156,20 @@ describe('find_duplicates', () => {
     expect(firstCall[1]).toBeLessThanOrEqual(51);
   });
 
+  it('reports a pair with a source memory but never merges it (#114)', async () => {
+    const organic = mem('a', 'On Taste', 0, 0.9);
+    const source = { ...mem('b', 'On Taste', 0, 0.5), memory_origin: 'source' as const };
+    const ctx = ctxWithStore([organic, source]);
+    const result = (await findDuplicatesTool.handler({ merge: true }, ctx)) as {
+      duplicates_found: number;
+      merged: number;
+    };
+    expect(result.duplicates_found).toBe(1);
+    expect(result.merged).toBe(0);
+    const store = ctx.namespaces.getStore() as unknown as { updateMemory: ReturnType<typeof vi.fn> };
+    expect(store.updateMemory).not.toHaveBeenCalled();
+  });
+
   it('handles empty store gracefully', async () => {
     const ctx = ctxWithStore([]);
     const result = (await findDuplicatesTool.handler({}, ctx)) as {

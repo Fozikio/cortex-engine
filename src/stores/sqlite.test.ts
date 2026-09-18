@@ -147,6 +147,22 @@ describe('embedding blob storage', () => {
     const obs = (await store.getUnprocessedObservations(10)).find(o => o.id === withEmb);
     expect(obs!.embedding![1]).toBeCloseTo(0.9, 6);
   });
+
+  it('countUnprocessedObservations counts rows, not fetched-and-length (#114)', async () => {
+    const store = new SqliteCortexStore(':memory:');
+    const now = new Date();
+    const base = {
+      content: 'obs', source_file: '', source_section: '', salience: 0.5,
+      processed: false, prediction_error: null, created_at: now, updated_at: now,
+      keywords: [], content_type: 'declarative' as const, embedding: null,
+    };
+    const ids = await Promise.all([0, 1, 2].map(() => store.putObservation(base)));
+
+    expect(await store.countUnprocessedObservations()).toBe(3);
+
+    await store.markObservationProcessed(ids[0]!);
+    expect(await store.countUnprocessedObservations()).toBe(2);
+  });
 });
 
 describe('legacy JSON-text embedding migration', () => {

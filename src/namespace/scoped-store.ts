@@ -73,6 +73,10 @@ export class ScopedStore implements CortexStore {
     return this.inner.getUnprocessedObservations(limit);
   }
 
+  countUnprocessedObservations(): Promise<number> {
+    return this.inner.countUnprocessedObservations();
+  }
+
   markObservationProcessed(id: string): Promise<void> {
     return this.inner.markObservationProcessed(id);
   }

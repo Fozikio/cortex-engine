@@ -12,6 +12,10 @@
 
 - `observe` with explicit `salience` ≥ 0.7 creates the memory on a `link` decision too, with the implied `related` edge; before, every related entry after the first queued whatever its salience (#114).
 
+### Fixed
+
+- The auto-consolidator counts unprocessed rows in the store instead of observe calls in the process, so rows promoted or processed elsewhere no longer trigger a run (#114).
+
 ## [1.8.0] — 2026-09-18
 
 ### Added

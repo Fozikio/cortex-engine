@@ -176,6 +176,26 @@ describe('JsonCortexStore', () => {
     expect(reopened.listAllOps()).toHaveLength(1);
   });
 
+  it('countUnprocessedObservations counts rows, not fetched-and-length (#114)', async () => {
+    const store = new JsonCortexStore(path);
+    const now = new Date('2026-05-16T10:00:00.000Z');
+    const ids = ['obs-a', 'obs-b', 'obs-c'];
+    for (const id of ids) {
+      await store.putObservation({
+        content: id, source_file: 'f.md', source_section: 's',
+        salience: 0.5, processed: false, prediction_error: null,
+        created_at: now, updated_at: now, embedding: null,
+        keywords: [], content_type: 'declarative',
+      });
+    }
+
+    expect(await store.countUnprocessedObservations()).toBe(3);
+
+    const [first] = await store.getUnprocessedObservations(1);
+    await store.markObservationProcessed(first!.id);
+    expect(await store.countUnprocessedObservations()).toBe(2);
+  });
+
   it('getCapabilities reports embedding dimension from first memory', async () => {
     const store = new JsonCortexStore(path);
     await store.upsertMemory(freshMemory({ id: 'm1', embedding: [0.1, 0.2, 0.3, 0.4] }));

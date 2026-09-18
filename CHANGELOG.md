@@ -6,6 +6,10 @@
 
 - `observe` and `notice` accept `name`, `category` and `tags`, used verbatim; Phase A keeps them (#114).
 
+### Changed
+
+- `observe` with explicit `salience` ≥ 0.7 creates the memory on a `link` decision too, with the implied `related` edge; before, every related entry after the first queued whatever its salience (#114).
+
 ## [1.8.0] — 2026-09-18
 
 ### Added

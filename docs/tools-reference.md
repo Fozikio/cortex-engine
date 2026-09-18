@@ -98,6 +98,9 @@ Records a declarative observation — duplicates merge into existing memories; h
   - `source_file` `string` — Source file path for provenance
   - `source_section` `string` — Source section or heading for provenance
   - `check_conflict` `boolean` — Check whether this observation contradicts the nearest existing memory (default: true; only runs when an NLI provider is configured)
+  - `name` `string` — Memory name/label, used verbatim instead of deriving one (skips the LLM naming call)
+  - `category` `string` — Memory category, used verbatim instead of inferring one
+  - `tags` `array` — Memory tags, used verbatim instead of the keyword-derived tags
 
 ### `query`
 
@@ -223,6 +226,7 @@ Ingests a single document — extracts facts as observations and generates refle
   - `pipeline` `array` — Pipeline steps to run (default: ["observe", "reflect"])
   - `namespace` `string` — Target namespace (defaults to default)
   - `salience` `number` — Salience override 0.0-1.0 (default: auto-detect)
+  - `treat_as` `string` — Override the frontmatter-based decision: "fact" stores declarative extractions as facts, "speculation" stores them as speculative. Default: frontmatter type/tags decide (workshop/experiment/fiction types and experiment/style-transfer/humor/debate tags → speculation).
 
 ### `dream`
 
@@ -888,6 +892,9 @@ Stores an observation without embedding for low-latency logging — embedding ha
   - `file` `string` — Source file path
   - `salience` `number` — Importance 0.0-1.0 (default: 0.3)
   - `namespace` `string` — Namespace (defaults to default)
+  - `name` `string` — Memory name/label, used verbatim instead of deriving one when this observation is later promoted
+  - `category` `string` — Memory category, used verbatim instead of inferring one when this observation is later promoted
+  - `tags` `array` — Memory tags, used verbatim instead of keyword-derived tags when this observation is later promoted
 
 ### `predict`
 

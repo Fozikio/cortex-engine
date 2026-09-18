@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- `observe` and `notice` accept `name`, `category` and `tags`, used verbatim; Phase A keeps them (#114).
+
 ## [1.8.0] — 2026-09-18
 
 ### Added

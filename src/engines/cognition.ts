@@ -532,21 +532,30 @@ async function createFromUnclustered(
 
   for (const obs of candidates) {
     try {
-      // Infer category — try LLM first, fall back to content_type-based heuristic.
-      let category: MemoryCategory = 'observation';
-      try {
-        const rawCategory = await llm.generate(
-          CLASSIFY_CATEGORY.build({ content: obs.content }),
-          { temperature: 0, maxTokens: 20 },
-        );
+      // A caller that wrote this observation with an explicit category (#114,
+      // e.g. observe()/notice() called with `category`) has already stated it
+      // verbatim — inferring one would second-guess a curated writer, so skip
+      // the classify call entirely.
+      let category: MemoryCategory;
+      if (obs.category) {
+        category = obs.category;
+      } else {
+        // Infer category — try LLM first, fall back to content_type-based heuristic.
+        category = 'observation';
+        try {
+          const rawCategory = await llm.generate(
+            CLASSIFY_CATEGORY.build({ content: obs.content }),
+            { temperature: 0, maxTokens: 20 },
+          );
 
-        const inferred = rawCategory.trim().toLowerCase() as MemoryCategory;
-        category = MEMORY_CATEGORIES.includes(inferred) ? inferred : 'observation';
-      } catch (err) {
-        dreamFailure(`create:classify:${obs.id}`, err);
-        // LLM classification failed — fall back to content_type heuristic so the
-        // observation can still be promoted, but the failure is no longer silent.
-        category = obs.content_type === 'reflective' ? 'insight' : 'belief';
+          const inferred = rawCategory.trim().toLowerCase() as MemoryCategory;
+          category = MEMORY_CATEGORIES.includes(inferred) ? inferred : 'observation';
+        } catch (err) {
+          dreamFailure(`create:classify:${obs.id}`, err);
+          // LLM classification failed — fall back to content_type heuristic so the
+          // observation can still be promoted, but the failure is no longer silent.
+          category = obs.content_type === 'reflective' ? 'insight' : 'belief';
+        }
       }
 
       // Reuse existing embedding or generate a fresh one.
@@ -555,7 +564,9 @@ async function createFromUnclustered(
         embedding = await embed.embed(obs.content);
       }
 
-      const name = await deriveName(obs.content, llm);
+      // Same reasoning as category: a name the writer already stated verbatim
+      // skips the LLM naming call.
+      const name = obs.name ?? await deriveName(obs.content, llm);
 
       // Atomic: promote the observation and mark it processed in one shot.
       // Without this, a crash between the two writes leaves an orphan memory
@@ -573,7 +584,7 @@ async function createFromUnclustered(
           last_accessed: new Date(),
           source_files: obs.source_file ? [obs.source_file] : [],
           embedding,
-          tags: obs.keywords.length > 0 ? obs.keywords : extractKeywords(obs.content),
+          tags: obs.tags ?? (obs.keywords.length > 0 ? obs.keywords : extractKeywords(obs.content)),
           fsrs: newFSRSState(),
           memory_origin: 'dream',
         });

@@ -30,6 +30,13 @@ export function optBool(args: Record<string, unknown>, key: string, def: boolean
   return typeof v === 'boolean' ? v : def;
 }
 
+/** An optional array-of-strings argument (e.g. caller-supplied tags). Non-string entries are dropped rather than throwing, since a malformed entry shouldn't sink the whole call. */
+export function optStrArray(args: Record<string, unknown>, key: string): string[] | undefined {
+  const v = args[key];
+  if (!Array.isArray(v)) return undefined;
+  return v.filter((x): x is string => typeof x === 'string');
+}
+
 // ─── Event Helpers ───────────────────────────────────────────────────────────
 
 /** Build a tool lookup function for ingestion pipeline execution. */

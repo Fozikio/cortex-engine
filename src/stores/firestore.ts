@@ -458,6 +458,14 @@ export class FirestoreCortexStore implements CortexStore {
     return snap.docs.map(doc => docToObservation(doc.id, doc.data()));
   }
 
+  async countUnprocessedObservations(): Promise<number> {
+    const snap = await this.col('observations')
+      .where('processed', '==', false)
+      .count()
+      .get();
+    return snap.data().count;
+  }
+
   async markObservationProcessed(id: string): Promise<void> {
     await this.col('observations').doc(id).update({
       processed: true,
@@ -1023,6 +1031,7 @@ class FirestoreTxnProxy implements CortexStore {
   }
 
   getUnprocessedObservations(): Promise<Observation[]> { return this.unsupported('getUnprocessedObservations'); }
+  countUnprocessedObservations(): Promise<number> { return this.unsupported('countUnprocessedObservations'); }
 
   async markObservationProcessed(id: string): Promise<void> {
     this.txn.update(this.col('observations').doc(id), {

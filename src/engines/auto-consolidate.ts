@@ -6,11 +6,21 @@
  * cortex-engine:
  *
  *   - observe / wonder / speculate call notifyObservation() after every write.
- *   - When pending count hits AUTO_THRESHOLD per namespace, dreamPhaseA
+ *   - notifyObservation asks the store how many unprocessed rows the
+ *     namespace actually has; when that is >= AUTO_THRESHOLD, dreamPhaseA
  *     (NREM: cluster → refine → create) fires in the background without
  *     blocking the tool call that triggered it.
  *   - On process exit (SIGTERM / SIGINT), flush() runs dreamPhaseA across
- *     all namespaces with unprocessed observations.
+ *     all namespaces that still have unprocessed rows.
+ *
+ * The trigger used to be an in-process call counter (#114): ten
+ * notifyObservation() calls fired Phase A regardless of what the store held,
+ * so ten observe calls whose rows a CLI had already promoted or processed by
+ * hand still swept and reprocessed them. The store is the source of truth
+ * for what is unprocessed — a namespace shared by more than one process (a
+ * server plus a CLI) can have rows come and go between calls — so the count
+ * read now happens against the store itself, on every notifyObservation, not
+ * against a counter this process kept privately.
  *
  * dreamPhaseA is intentionally lightweight — no REM (edges, abstraction,
  * FSRS scoring). Those still belong in the scheduled full `dream` cycle.
@@ -24,12 +34,12 @@ import type { LLMProvider } from '../core/llm.js';
 import type { NamespaceManager } from '../namespace/manager.js';
 import { dreamPhaseA } from './cognition.js';
 
-/** Number of new observations per namespace that trigger an auto-consolidation. */
+/** Number of unprocessed observations in the store that trigger an auto-consolidation. */
 export const AUTO_THRESHOLD = 10;
 
 export class SessionConsolidator {
-  /** pending[namespace] = count of new observations since last auto-run */
-  private pending = new Map<string, number>();
+  /** checking[namespace] = true while a threshold check is reading the store */
+  private checking = new Set<string>();
   /** running[namespace] = true while a background Phase A is in flight */
   private running = new Set<string>();
   private shuttingDown = false;
@@ -41,15 +51,45 @@ export class SessionConsolidator {
   ) {}
 
   /**
-   * Call this after every successful observation write. When the pending
-   * count crosses AUTO_THRESHOLD, schedules a background Phase A run.
+   * Call this after every successful observation write. Schedules an async
+   * check of the store's own unprocessed-row count for the namespace; when
+   * it is >= AUTO_THRESHOLD, runs Phase A. Fire-and-forget (stays `void` so
+   * observe/wonder/speculate never wait on it) — `checking` guards against
+   * two of these checks racing for the same namespace, the way `running`
+   * already guards two Phase A runs.
    */
   notifyObservation(namespace: string): void {
-    const count = (this.pending.get(namespace) ?? 0) + 1;
-    this.pending.set(namespace, count);
-    if (count >= AUTO_THRESHOLD && !this.running.has(namespace)) {
+    if (this.checking.has(namespace) || this.running.has(namespace)) return;
+    this.checking.add(namespace);
+    void this.checkThreshold(namespace).finally(() => {
+      this.checking.delete(namespace);
+    });
+  }
+
+  private async checkThreshold(namespace: string): Promise<void> {
+    const store = this.namespaces.getStore(namespace);
+    let count: number;
+    try {
+      count = await this.countUnprocessed(store);
+    } catch (err) {
+      // Best-effort, same as a failed Phase A run — never crash the caller.
+      if (process.env['CORTEX_DEBUG']) {
+        process.stderr.write(`[auto-consolidate:${namespace}] count failed: ${String(err)}\n`);
+      }
+      return;
+    }
+    if (count >= AUTO_THRESHOLD && !this.shuttingDown && !this.running.has(namespace)) {
       this.runPhaseA(namespace);
     }
+  }
+
+  /** COUNT(*) where the store has it; falls back to fetching and counting rows. */
+  private countUnprocessed(store: CortexStore): Promise<number> {
+    const withCount = store as Partial<Pick<CortexStore, 'countUnprocessedObservations'>>;
+    if (typeof withCount.countUnprocessedObservations === 'function') {
+      return withCount.countUnprocessedObservations();
+    }
+    return store.getUnprocessedObservations(AUTO_THRESHOLD).then((rows) => rows.length);
   }
 
   /**
@@ -60,15 +100,18 @@ export class SessionConsolidator {
     this.shuttingDown = true;
     const namespaces = this.namespaces.getNamespaceNames();
     await Promise.allSettled(
-      namespaces
-        .filter((ns) => (this.pending.get(ns) ?? 0) > 0)
-        .map((ns) => this.runPhaseA(ns, true)),
+      namespaces.map(async (ns) => {
+        const store = this.namespaces.getStore(ns);
+        const count = await this.countUnprocessed(store).catch(() => 0);
+        if (count > 0) {
+          await this.runPhaseA(ns, true);
+        }
+      }),
     );
   }
 
   private runPhaseA(namespace: string, wait = false): Promise<void> {
     this.running.add(namespace);
-    this.pending.set(namespace, 0);
 
     const store: CortexStore = this.namespaces.getStore(namespace);
     const nsConfig = this.namespaces.getConfig(namespace);
@@ -84,10 +127,6 @@ export class SessionConsolidator {
       }
     }).finally(() => {
       this.running.delete(namespace);
-      // If more observations arrived while we were running, re-trigger.
-      if (!this.shuttingDown && (this.pending.get(namespace) ?? 0) >= AUTO_THRESHOLD) {
-        void this.runPhaseA(namespace);
-      }
     });
 
     if (!wait) { void work; }

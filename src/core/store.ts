@@ -82,6 +82,14 @@ export interface CortexStore {
   /** Get unprocessed observations (for dream consolidation). */
   getUnprocessedObservations(limit: number): Promise<Observation[]>;
 
+  /**
+   * Count unprocessed observations without fetching them (#114: the
+   * auto-consolidator polls this on every notifyObservation to decide
+   * whether to run Phase A; a row COUNT(*) is far cheaper than fetching and
+   * discarding rows just to read `.length`).
+   */
+  countUnprocessedObservations(): Promise<number>;
+
   /** Mark an observation as processed. */
   markObservationProcessed(id: string): Promise<void>;
 

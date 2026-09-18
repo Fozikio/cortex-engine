@@ -685,6 +685,13 @@ export class SqliteCortexStore implements CortexStore {
     ).all(limit) as ObservationRow[]).map(rowToObservation);
   }
 
+  async countUnprocessedObservations(): Promise<number> {
+    const row = this.db.prepare(
+      `SELECT COUNT(*) AS n FROM ${this.t('observations')} WHERE processed = 0`
+    ).get() as { n: number };
+    return row.n;
+  }
+
   async markObservationProcessed(id: string): Promise<void> {
     this.db.prepare(
       `UPDATE ${this.t('observations')} SET processed = 1, updated_at = ? WHERE id = ?`

@@ -259,6 +259,14 @@ export class JsonCortexStore implements CortexStore {
       .map(o => clone(o));
   }
 
+  async countUnprocessedObservations(): Promise<number> {
+    let n = 0;
+    for (const o of Object.values(this.data.observations)) {
+      if (!o.processed) n++;
+    }
+    return n;
+  }
+
   async markObservationProcessed(id: string): Promise<void> {
     const obs = this.data.observations[id];
     if (!obs) return;

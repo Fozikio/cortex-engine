@@ -3,6 +3,10 @@
  *
  * Plugins are npm packages or local paths that export a ToolPlugin object as their
  * default export. Each plugin contributes a set of ToolDefinition[] to the engine.
+ *
+ * Local paths are checked against a node_modules allowlist (see below) unless
+ * the caller passes `{ trusted: true }` — reserved for paths that came from
+ * the agent's own config.yaml, not from a tool argument (#114).
  */
 
 import { resolve, isAbsolute } from 'node:path';
@@ -27,6 +31,25 @@ function resolvePluginPath(spec: string): string {
   return pathToFileURL(abs).href;
 }
 
+export interface LoadPluginsOptions {
+  /**
+   * Skip the node_modules allowlist below. Pass this only for paths that
+   * came from the agent's own config.yaml (`plugins:`), never for a path
+   * that arrived as a tool argument.
+   *
+   * The allowlist was built to stop a *tool call* from pointing the engine
+   * at arbitrary code — an argument an LLM can be steered into choosing.
+   * A config file is not that: it's the operator's own file, already
+   * trusted the same way every other config value (store path, LLM
+   * provider, federation URL) is trusted with no allowlist of its own.
+   * Refusing a config-declared path just because it isn't under
+   * node_modules blocked the legitimate case (a repo shipping its own
+   * plugin, e.g. `.fozikio/plugins/codebase-mind`) while doing nothing for
+   * the threat model the check was written for (#114).
+   */
+  trusted?: boolean;
+}
+
 /**
  * Load plugins by dynamic import and return a flat array of contributed tools.
  *
@@ -39,17 +62,20 @@ function resolvePluginPath(spec: string): string {
 export async function loadPlugins(
   pluginPaths: string[],
   coreToolNames?: Set<string>,
+  options?: LoadPluginsOptions,
 ): Promise<ToolDefinition[]> {
   if (pluginPaths.length === 0) return [];
 
   const tools: ToolDefinition[] = [];
   const seenNames = new Set<string>(coreToolNames ?? []);
+  const trusted = options?.trusted ?? false;
 
   for (const spec of pluginPaths) {
     try {
       const importPath = resolvePluginPath(spec);
 
-      // Validate plugin path is within trusted directories.
+      // Validate plugin path is within trusted directories — unless the
+      // caller marked this whole call `trusted` (see LoadPluginsOptions).
       // npm packages (no leading . or /) are resolved by Node and always come
       // from node_modules, so they pass through. Local paths must resolve to
       // an @fozikio or cortex- prefixed package in node_modules.
@@ -57,10 +83,13 @@ export async function loadPlugins(
       // Note: the cwd is NOT a trusted root. Previously `resolve('.')` was in
       // the allowlist, which trivially defeated the sandbox — any file under
       // the working directory was treated as trusted. With the cwd removed,
-      // operators who genuinely want to load a local plugin must publish it
-      // under node_modules/@fozikio/* or node_modules/cortex-* (via a workspace
-      // link, npm link, or local install) so the trust decision is explicit.
-      if (importPath.startsWith('file://')) {
+      // operators who genuinely want to load a local plugin from outside
+      // node_modules must either publish it under node_modules/@fozikio/* or
+      // node_modules/cortex-* (via a workspace link, npm link, or local
+      // install), or list it in config.yaml's `plugins:` and let the caller
+      // pass `trusted: true` (untrusted callers, e.g. anything driven by a
+      // tool argument, always keep the node_modules rule).
+      if (!trusted && importPath.startsWith('file://')) {
         const resolved = new URL(importPath).pathname.replace(/^\/([A-Z]:)/i, '$1'); // Windows drive letter fix
         const allowedPrefixes = [
           resolve('node_modules', '@fozikio'),

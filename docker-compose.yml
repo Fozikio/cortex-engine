@@ -3,9 +3,9 @@
 # Cortex API: http://localhost:8080
 # Firestore UI: http://localhost:8180
 #
-# This serves the REST API. It is not an MCP endpoint: Claude Code's `.mcp.json`
-# needs the stdio server (`cortex-engine`) or an MCP-over-HTTP transport, which
-# the REST server does not expose yet (#92).
+# This serves the REST API and, at /mcp, MCP over Streamable HTTP: Claude Code's
+# `.mcp.json` can point at http://localhost:8080/mcp with the token in an
+# x-cortex-token header (see docs/deploy-railway.md for the snippet).
 #
 # Requires CORTEX_API_TOKEN in the environment; requests send it as x-cortex-token.
 

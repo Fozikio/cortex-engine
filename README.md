@@ -172,6 +172,23 @@ A service counts as up when its HTTP endpoint answers, not when its process exis
 a process that is alive but no longer responding reports as `degraded`, which is the
 failure this is built to catch.
 
+**Many sessions, one store.** `fozikio serve --rest` also serves MCP over Streamable HTTP at `/mcp` (1.8.0).
+That is the answer to the one-process-per-SQLite-file rule: a main checkout and its worktrees, or several
+agents on one host, point `.mcp.json` at the one running server instead of each spawning a stdio server on
+the same file:
+
+```bash
+CORTEX_API_TOKEN=<token> npx fozikio serve --agent <name> --rest --port 3111   # binds 127.0.0.1
+```
+
+```json
+{ "mcpServers": { "cortex": { "type": "http", "url": "http://127.0.0.1:3111/mcp",
+                              "headers": { "x-cortex-token": "${CORTEX_API_TOKEN}" } } } }
+```
+
+Each client session gets its own MCP session (the `mcp-session-id` header) over the one engine, with the same
+tool list as stdio. The generic `/api/tools/:name` blocklist does not apply here: this is an agent's own session.
+
 **Memory.**
 
 ```bash

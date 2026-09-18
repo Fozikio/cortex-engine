@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.9.0] — 2026-09-18
+
 ### Added
 
 - `loadPlugins(paths, coreToolNames, { trusted })`: a path listed under `plugins:` in the agent's own config.yaml now loads even when it isn't published under `node_modules/@fozikio/*` or `node_modules/cortex-*`, so a repo can ship its own plugin (e.g. `.fozikio/plugins/codebase-mind`). The node_modules allowlist stays the default for any caller that doesn't pass `trusted: true` — it was written to stop a *tool argument* from loading arbitrary code, and a config file the operator wrote isn't that (#114).

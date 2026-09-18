@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.7.2] — 2026-09-18
+
+### Fixed
+
+- **`fozikio init` wrote an `.mcp.json` that could not start the server.** (#107)
+
+  `buildMcpJson` pinned `cortex-engine@<version>`, the pre-rename package name. The stub left at that name forwards only `^0.9.2`, so `npx -y cortex-engine@1.7.1` fails with `notarget` and Claude Code shows the `cortex` server as failed with nothing pointing at the cause. The pin and the rename landed the same day (2026-03-16), so every `init` since the first post-rename release has produced a dead `.mcp.json`; the workspaces that work had the file hand-edited to `npx fozikio serve`. It now pins `@fozikio/cortex-engine@<version>` — npm resolves the `cortex-engine` bin from the scoped package — and `buildMcpJson` has a test for both platforms.
+
+- **`fozikio init --here` no longer overwrites a project's `CLAUDE.md`, `AGENTS.md` or `.mcp.json`.** (#108)
+
+  All three were written with no existence check, which in an existing project replaced its `CLAUDE.md` with the twenty-line cortex pointer and its `.mcp.json` (other MCP servers) with one that had only `cortex`. Now an existing `CLAUDE.md` or `AGENTS.md` is kept and the pointer is written to `.fozikio/<name>` to paste or `@`-import; an existing `.mcp.json` that parses gains the `cortex` entry beside the servers already there, one that already has `cortex` or does not parse is left as is, and the summary says what happened in each case. The `.fozikio/` files are the tool's own and still overwrite. An empty directory scaffolds exactly as before.
+
 ## [1.7.1] — 2026-09-14
 
 ### Fixed

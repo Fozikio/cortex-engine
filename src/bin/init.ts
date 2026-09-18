@@ -223,33 +223,74 @@ tags: []
 `;
 
 
-function buildMcpJson(): string {
-  // Read version from package.json for pinning
-  const pkgPath = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'package.json');
-  let version = '0.6.0';
-  try {
-    const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
-    version = pkg.version ?? version;
-  } catch { /* use fallback */ }
+/** The npm package the generated `.mcp.json` pins. The unscoped `cortex-engine` is the pre-rename
+ *  stub (frozen at 0.9.x); pinning it to this package's version resolves to nothing (#107). */
+const NPM_PACKAGE = '@fozikio/cortex-engine';
 
-  if (process.platform === 'win32') {
-    return JSON.stringify({
-      mcpServers: {
-        cortex: {
-          command: 'cmd',
-          args: ['/c', 'npx', '-y', `cortex-engine@${version}`],
-        },
-      },
-    }, null, 2) + '\n';
+function readOwnVersion(): string {
+  const pkgPath = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'package.json');
+  try {
+    const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8')) as { version?: string };
+    return pkg.version ?? '0.6.0';
+  } catch {
+    return '0.6.0';
   }
-  return JSON.stringify({
-    mcpServers: {
-      cortex: {
-        command: 'npx',
-        args: ['-y', `cortex-engine@${version}`],
-      },
-    },
-  }, null, 2) + '\n';
+}
+
+/** The `cortex` server entry for `.mcp.json`: platform-aware (Windows needs the `cmd /c` wrapper
+ *  around npx) and pinned to this package's version under its scoped name. */
+export function buildMcpServerEntry(
+  version: string = readOwnVersion(),
+  platform: NodeJS.Platform = process.platform,
+): { command: string; args: string[] } {
+  const spec = `${NPM_PACKAGE}@${version}`;
+  return platform === 'win32'
+    ? { command: 'cmd', args: ['/c', 'npx', '-y', spec] }
+    : { command: 'npx', args: ['-y', spec] };
+}
+
+export function buildMcpJson(
+  version: string = readOwnVersion(),
+  platform: NodeJS.Platform = process.platform,
+): string {
+  return JSON.stringify({ mcpServers: { cortex: buildMcpServerEntry(version, platform) } }, null, 2) + '\n';
+}
+
+/**
+ * Write `.mcp.json`, keeping whatever is already there (#108). An existing file that parses gains
+ * the `cortex` entry when it has none; one that already has it, or does not parse, is left alone.
+ * Returns what happened, for the summary.
+ */
+export function writeMcpJson(
+  targetDir: string,
+  version: string = readOwnVersion(),
+  platform: NodeJS.Platform = process.platform,
+): 'written' | 'merged' | 'kept' | 'unreadable' {
+  const path = join(targetDir, '.mcp.json');
+  if (!existsSync(path)) {
+    writeFileSync(path, buildMcpJson(version, platform), 'utf-8');
+    return 'written';
+  }
+  let existing: { mcpServers?: Record<string, unknown> };
+  try {
+    existing = JSON.parse(readFileSync(path, 'utf-8')) as { mcpServers?: Record<string, unknown> };
+  } catch {
+    return 'unreadable';
+  }
+  if (existing === null || typeof existing !== 'object' || Array.isArray(existing)) return 'unreadable';
+  const servers = existing.mcpServers ?? {};
+  if (typeof servers !== 'object' || Array.isArray(servers)) return 'unreadable';
+  if ('cortex' in servers) return 'kept';
+  existing.mcpServers = { ...servers, cortex: buildMcpServerEntry(version, platform) };
+  writeFileSync(path, JSON.stringify(existing, null, 2) + '\n', 'utf-8');
+  return 'merged';
+}
+
+/** Write a project-level file only when the project does not already have one (#108). */
+function writeUnlessPresent(path: string, content: string): boolean {
+  if (existsSync(path)) return false;
+  writeFileSync(path, content, 'utf-8');
+  return true;
 }
 
 // ─── TOOLS.md — Agent-Agnostic Tool Reference ────────────────────────────
@@ -590,15 +631,15 @@ function installSkills(packageRoot: string, targetDir: string, skills: string[])
 
 // ─── Scaffold ──────────────────────────────────────────────────────────────
 
-export function runInit(args: string[]): void {
+export function runInit(args: string[], cwd: string = process.cwd()): void {
   const opts = parseInitArgs(args);
   if (!opts) {
     process.exit(1);
   }
 
   const targetDir = opts.here
-    ? process.cwd()
-    : resolve(process.cwd(), opts.name);
+    ? cwd
+    : resolve(cwd, opts.name);
 
   if (!opts.here && existsSync(targetDir)) {
     console.error(`[fozikio] Directory already exists: ${targetDir}`);
@@ -645,8 +686,8 @@ export function runInit(args: string[]): void {
   mkdirSync(credentialsDir, { recursive: true });
   writeFileSync(join(credentialsDir, '.gitignore'), '*\n!.gitignore\n', 'utf-8');
 
-  // .mcp.json — platform-aware, version-pinned
-  writeFileSync(join(targetDir, '.mcp.json'), buildMcpJson(), 'utf-8');
+  // .mcp.json — platform-aware, version-pinned; an existing one is merged into, never replaced
+  const mcpResult = writeMcpJson(targetDir);
 
   // .fozikio/TOOLS.md — canonical agent-agnostic tool reference
   let toolsContent = TOOLS_REFERENCE;
@@ -657,11 +698,15 @@ export function runInit(args: string[]): void {
   }
   writeFileSync(join(fozikioDir, 'TOOLS.md'), toolsContent, 'utf-8');
 
-  // CLAUDE.md — thin pointer for Claude Code users
-  writeFileSync(join(targetDir, 'CLAUDE.md'), CLAUDE_MD, 'utf-8');
-
-  // AGENTS.md — multi-agent roster
-  writeFileSync(join(targetDir, 'AGENTS.md'), buildAgentsRoster(opts.name), 'utf-8');
+  // CLAUDE.md and AGENTS.md — thin pointers; a project that already has them keeps its own
+  // (the pointer goes to .fozikio/<name> instead, to paste or @-import from theirs)
+  const kept: string[] = [];
+  for (const [name, content] of [['CLAUDE.md', CLAUDE_MD], ['AGENTS.md', buildAgentsRoster(opts.name)]] as const) {
+    if (!writeUnlessPresent(join(targetDir, name), content)) {
+      writeFileSync(join(fozikioDir, name), content, 'utf-8');
+      kept.push(name);
+    }
+  }
 
   // .obsidian/
   if (opts.obsidian) {
@@ -707,6 +752,17 @@ export function runInit(args: string[]): void {
   }
   if (installedRules.length > 0) {
     log(`  \u25C7 safety \u00B7\u00B7\u00B7\u00B7\u00B7\u00B7 reflex rules applied`);
+  }
+  if (mcpResult === 'merged') {
+    log(`  \u25C7 .mcp.json \u00B7\u00B7\u00B7 kept, cortex server added`);
+  } else if (mcpResult === 'kept') {
+    log(`  \u25C7 .mcp.json \u00B7\u00B7\u00B7 kept, already has a cortex server`);
+  } else if (mcpResult === 'unreadable') {
+    log(`  \u26A0 .mcp.json \u00B7\u00B7\u00B7 kept as is (could not parse it); add the cortex server by hand:`);
+    log(`      ${JSON.stringify(buildMcpServerEntry())}`);
+  }
+  for (const name of kept) {
+    log(`  \u25C7 ${name} \u00B7\u00B7\u00B7 kept yours; the cortex block to add is in .fozikio/${name}`);
   }
   log('');
   log(`  ${opts.name} initialized at ./${relativePath}/`);

@@ -18,6 +18,18 @@ export type MemoryCategory =
   | 'observation'
   | 'goal';
 
+/**
+ * Every `MemoryCategory` value, for validating a caller-supplied category
+ * (observe/notice, #114). Deliberately distinct from `engines/prompts.ts`'s
+ * `MEMORY_CATEGORIES`, which is the narrower set the dream pipeline's
+ * classifier prompt is allowed to pick from (it excludes 'goal' — goals are
+ * minted through goal_set, never inferred) — a caller stating its own
+ * category verbatim isn't bound by that restriction.
+ */
+export const ALL_MEMORY_CATEGORIES: readonly MemoryCategory[] = [
+  'belief', 'pattern', 'entity', 'topic', 'value', 'project', 'insight', 'observation', 'goal',
+];
+
 export type FSRSState = 'new' | 'learning' | 'review' | 'relearning';
 
 export interface FSRSData {
@@ -120,6 +132,16 @@ export interface Observation {
   source_type?: string;
   /** Source document's frontmatter tags, lower-cased. */
   source_tags?: string[];
+  /**
+   * Caller-supplied name/category/tags (#114) — a curated writer (the
+   * codebase-mind rulings ledger) knows the memory's label, category and
+   * tags at write time and states them verbatim, so Phase A's `create`
+   * shouldn't re-derive or re-classify them. Undefined means "derive as
+   * before"; these are never set by the engine itself.
+   */
+  name?: string;
+  category?: MemoryCategory;
+  tags?: string[];
 }
 
 // ─── Ops ──────────────────────────────────────────────────────────────────────

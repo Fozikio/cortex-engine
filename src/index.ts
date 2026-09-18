@@ -57,7 +57,7 @@ export type {
   ConfidenceTier,
   QueryFilter,
 } from './core/types.js';
-export { OPS_TTL_DAYS } from './core/types.js';
+export { OPS_TTL_DAYS, ALL_MEMORY_CATEGORIES } from './core/types.js';
 
 // Engines (pure functions, storage-agnostic)
 export {

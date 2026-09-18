@@ -164,6 +164,9 @@ function docToObservation(id: string, data: DocumentData): Observation {
     keywords: data.keywords ?? [],
     provenance: docProvenance(data),
     content_type: data.content_type ?? 'declarative',
+    name: data.name ?? undefined,
+    category: data.category ?? undefined,
+    tags: data.tags ?? undefined,
   };
 }
 
@@ -437,6 +440,9 @@ export class FirestoreCortexStore implements CortexStore {
       keywords: obs.keywords ?? [],
       content_type: obs.content_type ?? 'declarative',
       provenance: provenanceData(obs.provenance) ?? null,
+      name: obs.name ?? null,
+      category: obs.category ?? null,
+      tags: obs.tags ?? null,
     });
     return ref.id;
   }
@@ -1008,6 +1014,9 @@ class FirestoreTxnProxy implements CortexStore {
       keywords: obs.keywords ?? [],
       content_type: obs.content_type ?? 'declarative',
       provenance: provenanceData(obs.provenance) ?? null,
+      name: obs.name ?? null,
+      category: obs.category ?? null,
+      tags: obs.tags ?? null,
     });
     return id;
   }

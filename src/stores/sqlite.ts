@@ -118,6 +118,7 @@ interface ObservationRow {
   prov_model_id: string | null; prov_model_family: string | null;
   prov_client: string | null; prov_agent: string | null;
   source_type: string | null; source_tags: string | null;
+  name: string | null; category: string | null; tags: string | null;
 }
 
 interface EdgeRow {
@@ -204,6 +205,9 @@ function rowToObservation(r: ObservationRow): Observation {
     content_type: (r.content_type as Observation['content_type']) ?? 'declarative',
     source_type: r.source_type ?? undefined,
     source_tags: r.source_tags ? parseJSON<string[]>(r.source_tags, []) : undefined,
+    name: r.name ?? undefined,
+    category: (r.category as Observation['category']) ?? undefined,
+    tags: r.tags ? parseJSON<string[]>(r.tags, []) : undefined,
   };
 }
 
@@ -395,6 +399,11 @@ export class SqliteCortexStore implements CortexStore {
     // Bitemporal belief entries: valid time alongside system time (changed_at).
     this.addColumn(this.t('beliefs'), 'valid_from TEXT');
     this.addColumn(this.t('beliefs'), 'valid_to TEXT');
+    // Caller-supplied name/category/tags on an observation (#114) — a curated
+    // writer states these verbatim so Phase A's create doesn't re-derive them.
+    this.addColumn(this.t('observations'), 'name TEXT');
+    this.addColumn(this.t('observations'), 'category TEXT');
+    this.addColumn(this.t('observations'), 'tags TEXT');
     this.migrateEmbeddingsToBlobs();
   }
 
@@ -646,10 +655,10 @@ export class SqliteCortexStore implements CortexStore {
       id, content, source_file, source_section, salience, processed,
       prediction_error, created_at, updated_at, embedding, keywords,
       content_type, prov_model_id, prov_model_family, prov_client, prov_agent,
-      source_type, source_tags
+      source_type, source_tags, name, category, tags
     ) VALUES (
       @id, @content, @sf, @ss, @sal, @proc, @pe, @ca, @ua, @emb, @kw,
-      @ct, @pmi, @pmf, @pc, @pa, @st, @stags
+      @ct, @pmi, @pmf, @pc, @pa, @st, @stags, @name, @category, @tags
     )`).run({
       id, content: obs.content, sf: obs.source_file, ss: obs.source_section,
       sal: obs.salience, proc: obs.processed ? 1 : 0,
@@ -662,6 +671,9 @@ export class SqliteCortexStore implements CortexStore {
       pc: obs.provenance?.client ?? null, pa: obs.provenance?.agent ?? null,
       st: obs.source_type ?? null,
       stags: obs.source_tags ? JSON.stringify(obs.source_tags) : null,
+      name: obs.name ?? null,
+      category: obs.category ?? null,
+      tags: obs.tags ? JSON.stringify(obs.tags) : null,
     });
     return id;
   }

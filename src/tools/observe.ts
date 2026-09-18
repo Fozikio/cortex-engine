@@ -8,12 +8,14 @@
 
 import type { ToolDefinition } from '../mcp/tools.js';
 import type { CortexStore } from '../core/store.js';
+import type { MemoryCategory } from '../core/types.js';
+import { ALL_MEMORY_CATEGORIES } from '../core/types.js';
 import { predictionErrorGate } from '../engines/memory.js';
 import { extractKeywords } from '../engines/keywords.js';
 import { deriveName } from '../engines/naming.js';
 import { adjudicateContradiction, MAX_CONFIDENCE_PENALTY } from '../engines/adjudicate.js';
 import { SALIENCE_SCORE } from '../engines/prompts.js';
-import { str, optStr, optBool, fireTriggers, fireBridges } from './_helpers.js';
+import { str, optStr, optBool, optStrArray, fireTriggers, fireBridges } from './_helpers.js';
 import { normalizeSalience } from '../engines/salience.js';
 
 export const observeTool: ToolDefinition = {
@@ -31,6 +33,9 @@ export const observeTool: ToolDefinition = {
       source_file: { type: 'string', description: 'Source file path for provenance' },
       source_section: { type: 'string', description: 'Source section or heading for provenance' },
       check_conflict: { type: 'boolean', description: 'Check whether this observation contradicts the nearest existing memory (default: true; only runs when an NLI provider is configured)' },
+      name: { type: 'string', description: 'Memory name/label, used verbatim instead of deriving one (skips the LLM naming call)' },
+      category: { type: 'string', enum: [...ALL_MEMORY_CATEGORIES], description: 'Memory category, used verbatim instead of inferring one' },
+      tags: { type: 'array', items: { type: 'string' }, description: 'Memory tags, used verbatim instead of the keyword-derived tags' },
     },
     required: ['text'],
   },
@@ -39,6 +44,13 @@ export const observeTool: ToolDefinition = {
     const namespace = optStr(args, 'namespace');
     const sourceFile = optStr(args, 'source_file') ?? '';
     const sourceSection = optStr(args, 'source_section') ?? '';
+    const explicitName = optStr(args, 'name');
+    const explicitTags = optStrArray(args, 'tags');
+    const rawCategory = optStr(args, 'category');
+    if (rawCategory !== undefined && !ALL_MEMORY_CATEGORIES.includes(rawCategory as MemoryCategory)) {
+      return { error: `Unknown category "${rawCategory}" — must be one of: ${ALL_MEMORY_CATEGORIES.join(', ')}` };
+    }
+    const explicitCategory = rawCategory as MemoryCategory | undefined;
 
     const store: CortexStore = ctx.namespaces.getStore(namespace);
     const provenance = ctx.session.getProvenance();
@@ -109,6 +121,9 @@ export const observeTool: ToolDefinition = {
               embedding,
               keywords,
               provenance,
+              name: explicitName,
+              category: explicitCategory,
+              tags: explicitTags,
             });
 
             const isGenuine = adjudication.verdict === 'genuine';
@@ -193,6 +208,9 @@ export const observeTool: ToolDefinition = {
         embedding,
         keywords,
         provenance,
+        name: explicitName,
+        category: explicitCategory,
+        tags: explicitTags,
       });
 
       try {
@@ -231,6 +249,9 @@ export const observeTool: ToolDefinition = {
       embedding,
       keywords,
       provenance,
+      name: explicitName,
+      category: explicitCategory,
+      tags: explicitTags,
     });
 
     // High prediction error = surprise — create a signal
@@ -253,9 +274,8 @@ export const observeTool: ToolDefinition = {
 
     // High-salience novel observation — create memory immediately
     if (gate.decision === 'novel' && salience >= 0.7) {
-      const memName = await deriveName(text, ctx.llm);
-
-      const category = inferCategory(text);
+      const memName = explicitName ?? await deriveName(text, ctx.llm);
+      const category = explicitCategory ?? inferCategory(text);
       // Memory creation + observation mark-processed must commit together;
       // a crash between them leaves an orphan memory + the source obs
       // re-entering the dream pipeline on the next cycle.
@@ -272,7 +292,7 @@ export const observeTool: ToolDefinition = {
           last_accessed: new Date(),
           source_files: [sourceFile],
           embedding,
-          tags: keywords.slice(0, 5),
+          tags: explicitTags ?? keywords.slice(0, 5),
           fsrs: { stability: 1, difficulty: 0.3, reps: 0, lapses: 0, state: 'new', last_review: null },
           memory_origin: 'organic',
         });
@@ -328,7 +348,7 @@ export const observeTool: ToolDefinition = {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 /** Simple heuristic category inference from text content. */
-function inferCategory(text: string): 'belief' | 'pattern' | 'entity' | 'topic' | 'value' | 'project' | 'insight' | 'observation' | 'goal' {
+function inferCategory(text: string): MemoryCategory {
   const lower = text.toLowerCase();
   if (/\bi (believe|think|feel|prefer)\b/.test(lower)) return 'belief';
   if (/\bpattern|tendency|always|usually|often\b/.test(lower)) return 'pattern';

@@ -12,12 +12,15 @@ Node 22 or newer (`engines: node >=22`). CI runs the suite on Node 24 across
 Ubuntu and Windows, and separately checks that the package still builds and
 tests on Node 22 so the published `engines` claim stays honest.
 
-**Windows without Visual Studio Build Tools:** `npm ci` fails compiling
-`better-sqlite3` even though the package ships prebuilt binaries — npm's `ci`
-path ignores the package's `gypfile: false` and runs the implicit
-`node-gyp rebuild`. `npm install` reads the manifest and uses the prebuild.
-Use `npm install` instead (the lockfile is still honoured), or install the
-MSVC C++ workload. Consumers of the published package are unaffected.
+**Windows without Visual Studio Build Tools:** both `npm ci` and `npm install`
+fail compiling `better-sqlite3` even though the package ships prebuilt
+binaries — npm ignores the package's `gypfile: false` and runs the implicit
+`node-gyp rebuild`. Use `npm ci --ignore-scripts` (the prebuild in the tarball
+is used as-is), or install the MSVC C++ workload. `npm install` was the
+recommendation here until 2026-09-22, when it started failing the same way on
+npm 10.9.x — it is no longer a workaround. Consumers of the published package
+are unaffected: a plain `npm install @fozikio/cortex-engine` into a fresh
+project resolves the prebuild and needs no toolchain.
 
 Windows is in the test matrix on purpose: service supervision is
 platform-specific — detached spawning, `taskkill` and PID handling all differ

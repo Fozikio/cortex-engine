@@ -5,7 +5,8 @@ Portable cognitive engine for AI agents. Published as `@fozikio/cortex-engine` o
 ## Workflow tier: Production
 
 Conventional commits with scopes and explanatory bodies, PR-required (no direct
-pushes to master), CI as a hard merge gate, Keep-a-Changelog CHANGELOG.md with
+pushes to master), the `local-ci` status (`npm run ci:local -- <branch>` on the PR's
+final head) as the merge gate required by the master ruleset, Keep-a-Changelog CHANGELOG.md with
 semver tags. New clones: run `git config core.hooksPath .githooks` once to
 activate the commit-msg lint hook.
 
@@ -18,6 +19,7 @@ npm run test         # vitest (requires --experimental-vm-modules)
 npm run test:watch   # vitest watch mode
 npm run serve        # Start MCP server (node dist/bin/serve.js)
 npm run docs:tools   # Regenerate docs/tools-reference.md from dist/ (build first)
+npm run ci:local -- <ref>  # Merge gate: CI checks in a clean worktree, posts `local-ci` status
 ```
 
 ## Architecture

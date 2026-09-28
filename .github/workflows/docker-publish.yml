@@ -4,8 +4,21 @@ on:
   push:
     branches: [master]
     tags: ['v*']
+  # PR builds only prove the image still builds, and a multi-arch build bills ~4 minutes. The TypeScript is already
+  # checked by CI, so only changes that can break the image itself trigger one, and never on a draft.
   pull_request:
     branches: [master]
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - Dockerfile
+      - .dockerignore
+      - package.json
+      - package-lock.json
+      - .github/workflows/docker-publish.yml
+
+concurrency:
+  group: docker-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   REGISTRY: ghcr.io
@@ -13,7 +26,9 @@ env:
 
 jobs:
   build-and-push:
+    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
       packages: write

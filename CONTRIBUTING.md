@@ -61,10 +61,17 @@ not a restatement of the patch.
 This repository is on the **Production** workflow tier:
 
 - No direct pushes to `master` — every change goes through a PR.
-- CI is a hard merge gate. The required context is **`Type Check`**; do not
-  rename that job, or branch protection will wait forever on a check that no
-  longer reports.
-- Branches must be up to date with `master` before merging.
+- The merge gate is the **`local-ci`** commit status, required by the `master`
+  ruleset. A maintainer runs `npm run ci:local -- <pr-branch>` on the PR's
+  final head: it checks the commit out into a throwaway worktree, runs the same
+  type check, build, tests and high-severity audit as CI, and posts the status.
+  Merges never wait on GitHub Actions minutes.
+- GitHub Actions CI (one job: Node 22 then Node 24, on non-draft PRs) is a
+  second opinion from a clean Linux box. A real failure there still gets fixed
+  before merging; a run that never started for billing reasons says nothing
+  about the code.
+- Branches must be up to date with `master` before merging, so re-run
+  `ci:local` after updating a branch.
 
 ## Dependencies
 

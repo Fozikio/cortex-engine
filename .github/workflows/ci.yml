@@ -1,77 +1,56 @@
 name: CI
 
+# Lean shape: non-draft PRs only, one job, no re-run on push to master (the PR's run already checked the code).
+# The merge gate is the `local-ci` status from `npm run ci:local` (scripts/ci-local.ts), which runs these same
+# checks on Windows, so the old windows-latest test leg is covered there. This job is the clean-Linux second opinion.
 on:
   pull_request:
     branches: [master]
-  push:
-    branches: [master]
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
-  # Name kept verbatim — branch protection requires the "Type Check" context,
-  # and renaming it would leave PRs waiting on a check that no longer reports.
-  typecheck:
-    name: Type Check
+  ci:
+    name: CI
+    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          cache: npm
-      - run: npm ci
-      - run: npx tsc -p tsconfig.json
 
-  # The suite was configured but never ran in CI, so the merge gate only ever
-  # checked types. Windows is in the matrix because service supervision is
-  # platform-specific: detached spawning, taskkill and PID handling all differ
-  # there, and an ubuntu-only gate cannot see any of it.
-  test:
-    name: Test
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          cache: npm
-      - run: npm ci
-      - run: npm test
-
-  # Gates on high/critical only. Moderates are deliberately not a merge
-  # blocker: some transitive advisories have no fix reachable without
-  # breaking changes, and a gate that cannot be satisfied gets ignored or
-  # bypassed rather than fixed. High and above must stay at zero.
-  audit:
-    name: Audit
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          cache: npm
-      - run: npm ci
-      - run: npm audit --audit-level=high
-
-  # package.json claims `engines: node >=22`, but every other job runs 24,
-  # so the claim was never tested. This job is the evidence for it. If it
-  # fails, the honest fix is to raise `engines` — not to delete this job.
-  node22:
-    name: Node 22 Compat
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      # package.json claims `engines: node >=22`, so the floor runs first. If it fails, the honest fix is to raise
+      # `engines`, not to drop this leg.
+      - name: Setup Node 22
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm run build
-      - run: npm test
+      - name: Type Check
+        run: npx tsc -p tsconfig.json --noEmit
+      - name: Build (Node 22)
+        run: npm run build
+      - name: Test (Node 22)
+        run: npm test
+
+      # Gates on high/critical only. Moderates are deliberately not a blocker: some transitive advisories have no fix
+      # reachable without breaking changes, and a gate that cannot be satisfied gets bypassed rather than fixed.
+      - name: Audit
+        run: npm audit --audit-level=high
+
+      # Current LTS. Reinstall so better-sqlite3 matches this ABI.
+      - name: Setup Node 24
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Test (Node 24)
+        run: npm test

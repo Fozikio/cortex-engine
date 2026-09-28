@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+## [1.9.2] — 2026-09-28
+
+### Fixed
+
+- **The re-exported `CORE_RULES` no longer hard-block any command containing `..`.** 1.9.1 depended on `@fozikio/reflex` `^0.2.0`, which fresh installs resolved to 0.2.1. That version's `path-traversal` rule had a top-level alternation, so its second branch matched `..` with no delete verb, and `cd ../src && npm test` was blocked as a critical, non-disableable "delete command" (Fozikio/reflex#6). The dependency is now `^0.3.0`, where the rule fires only on a delete verb (#127).
+
+### Changed
+
+- `@modelcontextprotocol/sdk` floor raised to 1.30.1, which caps HTTP request body size and JSON-RPC batch length on the server side. That matters for the Streamable HTTP endpoint at `/mcp` (#127).
+- Development: `npm run ci:local -- <branch>` is the merge gate. It posts the `local-ci` status the `master` ruleset requires. Actions CI runs as one job on non-draft PRs (#129).
+
 ## [1.9.1] — 2026-09-18
 
 ### Fixed

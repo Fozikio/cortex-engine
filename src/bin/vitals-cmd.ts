@@ -483,7 +483,7 @@ export async function runVitals(args: string[]): Promise<void> {
     await Promise.all([
       store.queryOps({ days }),
       store.query('retrieval_traces', [{ field: 'timestamp', op: '>=', value: windowStart }], { limit: 1000, orderBy: 'timestamp', orderDir: 'desc' }),
-      store.query('observations', [cutoffFilter], { limit: 500 }),
+      store.queryObservations({ since: windowStart, limit: 500 }),
       store.query('edges', [cutoffFilter], { limit: 1000 }),
       store.query('threads', [{ field: 'updated_at', op: '>=', value: windowStart }]),
       store.query('vitals', []),
@@ -491,7 +491,7 @@ export async function runVitals(args: string[]): Promise<void> {
 
   // Cast to typed arrays
   const traces = rawTraces as RetrievalTrace[];
-  const observations = rawObservations as unknown as Observation[];
+  const observations: Observation[] = rawObservations;
   const edges = rawEdges as unknown as Edge[];
   const threads = rawThreads as ThreadDoc[];
 

@@ -115,15 +115,14 @@ export async function runReport(args: string[]): Promise<void> {
   }
 
   // ── Parallel data fetch ─────────────────────────────────────────────────
-  // Fetch all observations + threads via the generic query path; cast after
-  // await since store.query returns Record<string, unknown>[] generically.
-  const [memories, allObsRaw, weekOps, allThreadsRaw] = await Promise.all([
+  // Observations through the typed read; threads via the generic query path
+  // (cast after await since store.query returns Record<string, unknown>[]).
+  const [memories, allObs, weekOps, allThreadsRaw] = await Promise.all([
     store.getAllMemories(),
-    store.query('observations', [], { limit: 10000 }),
+    store.queryObservations({ limit: 10000 }),
     store.queryOps({ days, limit: 5000 }),
     store.query('threads', [], { limit: 2000 }),
   ]);
-  const allObs = allObsRaw as unknown as Observation[];
   const allThreads = allThreadsRaw as unknown as Array<{ status?: string; resolved_at?: Date | string | null }>;
 
   // Fetch edges for all memory IDs

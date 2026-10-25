@@ -7,6 +7,7 @@
  */
 
 import type { ToolDefinition, ToolContext } from '../mcp/tools.js';
+import type { Observation } from '../core/types.js';
 import { optStr } from './_helpers.js';
 import { hydeExpand, spreadActivation } from '../engines/memory.js';
 import { retrievability, elapsedDaysSince } from '../engines/fsrs.js';
@@ -35,20 +36,14 @@ export const predictTool: ToolDefinition = {
 
     // Gather recent observations as implicit context
     const sinceDate = new Date(Date.now() - LOOKBACK_HOURS * 60 * 60 * 1000);
-    let recentObs: Array<Record<string, unknown>> = [];
+    let recentObs: Observation[] = [];
     try {
-      recentObs = await store.query(
-        'observations',
-        [{ field: 'created_at', op: '>=', value: sinceDate }],
-        { limit: 10, orderBy: 'created_at', orderDir: 'desc' },
-      );
+      recentObs = await store.queryObservations({ since: sinceDate, limit: 10 });
     } catch {
       // Observation query failure is non-fatal
     }
 
-    const recentObservations = recentObs
-      .map((d) => typeof d['content'] === 'string' ? d['content'] : '')
-      .join(' ');
+    const recentObservations = recentObs.map((o) => o.content).join(' ');
 
     // Build composite context: recent activity + optional hint
     const compositeContext = [recentObservations, contextHint]

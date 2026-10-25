@@ -23,9 +23,6 @@ import type { ToolDefinition } from '../mcp/tools.js';
 import { adjudicateContradiction, MAX_CONFIDENCE_PENALTY } from '../engines/adjudicate.js';
 import { optStr } from './_helpers.js';
 
-const OBSERVATIONS_COLLECTION = 'observations';
-const BELIEFS_COLLECTION = 'beliefs';
-
 export const contradictTool: ToolDefinition = {
   name: 'contradict',
   category: 'beliefs',
@@ -64,11 +61,13 @@ export const contradictTool: ToolDefinition = {
 
     const store = ctx.namespaces.getStore(namespace);
 
-    const obsDoc = await store.get(OBSERVATIONS_COLLECTION, observationId);
-    if (!obsDoc) {
+    // Typed reads (#123): observe/wonder/speculate write the typed table and
+    // believe writes typed belief entries; the generic get() never saw them.
+    const observation = await store.getObservation(observationId);
+    if (!observation) {
       return { error: `Observation ${observationId} not found` };
     }
-    const content = typeof obsDoc['content'] === 'string' ? obsDoc['content'] : '';
+    const content = observation.content;
     const snippet = content.slice(0, 500);
 
     // Resolve the disputed concept and the text the evidence is claimed to contradict.
@@ -85,17 +84,16 @@ export const contradictTool: ToolDefinition = {
       targetText = memory.definition;
       targetMemoryConfidence = memory.confidence;
     } else {
-      const beliefDoc = await store.get(BELIEFS_COLLECTION, beliefId!);
-      if (!beliefDoc) {
+      const belief = await store.getBelief(beliefId!);
+      if (!belief) {
         return { error: `Belief ${beliefId} not found` };
       }
-      const docConceptId = typeof beliefDoc['concept_id'] === 'string' ? beliefDoc['concept_id'] : '';
-      if (!docConceptId) {
-        return { error: 'Belief document has no concept_id' };
+      if (!belief.concept_id) {
+        return { error: 'Belief entry has no concept_id' };
       }
-      conceptId = docConceptId;
-      targetText = typeof beliefDoc['new_definition'] === 'string' ? beliefDoc['new_definition'] : '';
-      const conceptMemory = await store.getMemory(docConceptId);
+      conceptId = belief.concept_id;
+      targetText = belief.new_definition;
+      const conceptMemory = await store.getMemory(belief.concept_id);
       if (conceptMemory) {
         targetText = targetText || conceptMemory.definition;
         targetMemoryConfidence = conceptMemory.confidence;

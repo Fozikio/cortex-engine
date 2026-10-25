@@ -188,19 +188,15 @@ async function gatherContext(store: CortexStore, depth: number): Promise<string>
 
   // 2. Recent observations (including questions and speculations)
   try {
-    const observations = await store.query(
-      'observations',
-      [],
-      { limit: depth, orderBy: 'created_at', orderDir: 'desc' },
-    );
+    const observations = await store.queryObservations({ limit: depth });
     if (observations.length > 0) {
       parts.push('\n## Recent Observations');
       for (const o of observations) {
-        const contentType = o['content_type'];
+        const contentType = o.content_type;
         const typeLabel = contentType === 'interrogative' ? '(question) '
           : contentType === 'speculative' ? '(hypothesis) '
           : '';
-        const content = typeof o['content'] === 'string' ? o['content'].slice(0, 200) : '';
+        const content = o.content.slice(0, 200);
         parts.push(`- ${typeLabel}${content}`);
       }
     }

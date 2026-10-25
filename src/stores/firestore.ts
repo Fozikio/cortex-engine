@@ -15,10 +15,12 @@ import type { CortexStore, StoreCapabilities } from '../core/store.js';
 import { CORTEX_STORE_SCHEMA_VERSION } from '../core/store.js';
 import { validateNamespace } from './_validate.js';
 import { lexicalSearch } from './_lexical.js';
+import { matchesObservationFilters, orderObservations } from './_generic.js';
 import type {
   Memory,
   MemorySummary,
   Observation,
+  ObservationFilters,
   Edge,
   OpsEntry,
   OpsFilters,
@@ -448,6 +450,32 @@ export class FirestoreCortexStore implements CortexStore {
     return ref.id;
   }
 
+  async getObservation(id: string): Promise<Observation | null> {
+    const snap = await this.col('observations').doc(id).get();
+    if (!snap.exists) return null;
+    return docToObservation(snap.id, snap.data() as DocumentData);
+  }
+
+  async queryObservations(filters: ObservationFilters = {}): Promise<Observation[]> {
+    // Range + orderBy on created_at only (single-field index). Equality
+    // filters on other fields would need composite indexes, so they run
+    // client-side over the time window; the limit is pushed to the server
+    // only when nothing is filtered client-side.
+    let q: FirebaseFirestore.Query = this.col('observations');
+    if (filters.since) q = q.where('created_at', '>=', toTimestamp(filters.since));
+    if (filters.until) q = q.where('created_at', '<', toTimestamp(filters.until));
+    q = q.orderBy('created_at', filters.order === 'asc' ? 'asc' : 'desc');
+    const clientSide = filters.content_type !== undefined
+      || filters.processed !== undefined || filters.has_prediction_error === true;
+    if (!clientSide && filters.limit !== undefined) q = q.limit(filters.limit);
+
+    const snap = await q.get();
+    const list = snap.docs.map(doc => docToObservation(doc.id, doc.data()));
+    return clientSide
+      ? orderObservations(list.filter(o => matchesObservationFilters(o, filters)), filters)
+      : list;
+  }
+
   async getUnprocessedObservations(limit: number): Promise<Observation[]> {
     const snap = await this.col('observations')
       .where('processed', '==', false)
@@ -651,6 +679,12 @@ export class FirestoreCortexStore implements CortexStore {
     return ref.id;
   }
 
+  async getBelief(id: string): Promise<BeliefEntry | null> {
+    const snap = await this.col('beliefs').doc(id).get();
+    if (!snap.exists) return null;
+    return docToBelief(snap.id, snap.data() as DocumentData);
+  }
+
   async getBeliefHistory(conceptId: string): Promise<BeliefEntry[]> {
     const snap = await this.col('beliefs')
       .where('concept_id', '==', conceptId)
@@ -733,7 +767,7 @@ export class FirestoreCortexStore implements CortexStore {
    *
    * Unsupported inside the txn fn: findNearest (no transactional vector search),
    * queries that scan (no transactional query()), countDocuments, getRecent*,
-   * getAllMemories, getBeliefHistory, queryOps. Callers needing those reads
+   * getAllMemories, getBeliefHistory, queryObservations, queryOps. Callers needing those reads
    * must perform them outside the transaction and pass the IDs in.
    *
    * Nested calls are forbidden — Firestore actually allows nesting but mixing
@@ -1030,6 +1064,13 @@ class FirestoreTxnProxy implements CortexStore {
     return id;
   }
 
+  async getObservation(id: string): Promise<Observation | null> {
+    const snap = await this.txn.get(this.col('observations').doc(id));
+    if (!snap.exists) return null;
+    return docToObservation(snap.id, snap.data() as DocumentData);
+  }
+
+  queryObservations(): Promise<Observation[]> { return this.unsupported('queryObservations'); }
   getUnprocessedObservations(): Promise<Observation[]> { return this.unsupported('getUnprocessedObservations'); }
   countUnprocessedObservations(): Promise<number> { return this.unsupported('countUnprocessedObservations'); }
 
@@ -1150,6 +1191,12 @@ class FirestoreTxnProxy implements CortexStore {
       valid_to: entry.valid_to ? toTimestamp(entry.valid_to) : null,
     });
     return id;
+  }
+
+  async getBelief(id: string): Promise<BeliefEntry | null> {
+    const snap = await this.txn.get(this.col('beliefs').doc(id));
+    if (!snap.exists) return null;
+    return docToBelief(snap.id, snap.data() as DocumentData);
   }
 
   getBeliefHistory(): Promise<BeliefEntry[]> { return this.unsupported('getBeliefHistory'); }

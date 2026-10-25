@@ -9,6 +9,7 @@
 import type {
   Memory,
   Observation,
+  ObservationFilters,
   Edge,
   OpsEntry,
   OpsFilters,
@@ -79,6 +80,22 @@ export interface CortexStore {
   /** Store a new observation, returns its ID. */
   putObservation(obs: Omit<Observation, 'id'>): Promise<string>;
 
+  /**
+   * Get one observation by ID, whichever write path stored it (#123). SQLite
+   * and JSON also return observations written through the generic collection
+   * API (older `notice` rows). Returns null if not found.
+   */
+  getObservation(id: string): Promise<Observation | null>;
+
+  /**
+   * List observations by time window, content type and processed state,
+   * newest first unless `order: 'asc'` (#122). The supported read for
+   * observations — the generic `query('observations')` only sees the
+   * generic collection on SQLite/JSON, where typed observations do not live.
+   * SQLite/JSON merge in legacy generic-collection rows.
+   */
+  queryObservations(filters?: ObservationFilters): Promise<Observation[]>;
+
   /** Get unprocessed observations (for dream consolidation). */
   getUnprocessedObservations(limit: number): Promise<Observation[]>;
 
@@ -138,7 +155,16 @@ export interface CortexStore {
   /** Log a belief change. */
   putBelief(entry: Omit<BeliefEntry, 'id'>): Promise<string>;
 
-  /** Get belief history for a concept. */
+  /**
+   * Get one belief entry by ID (#123). SQLite/JSON also return entries in
+   * the generic `beliefs` collection (e.g. revisions migrated from Firestore).
+   */
+  getBelief(id: string): Promise<BeliefEntry | null>;
+
+  /**
+   * Get belief history for a concept, oldest first. SQLite/JSON merge in
+   * generic-collection entries the same way getBelief reads them.
+   */
   getBeliefHistory(conceptId: string): Promise<BeliefEntry[]>;
 
   // ─── Generic ─────────────────────────────────────────────────────────────────

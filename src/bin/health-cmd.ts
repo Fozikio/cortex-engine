@@ -193,13 +193,9 @@ export async function runHealth(args: string[]): Promise<void> {
     store.getUnprocessedObservations(10_000),
   ]);
 
-  // Fetch all observations for PE stats — unprocessed are a subset, but we
-  // also want total count. Use getUnprocessedObservations with a high limit
-  // and then separately query for total via ops query pattern.
-  // Note: CortexStore has no getAllObservations(), so we use the generic
-  // query() method which returns raw records.
-  const allObsRaw = await store.query('observations', [], { limit: 100_000 });
-  const allObs = allObsRaw as unknown as Observation[];
+  // Fetch all observations for PE stats and the total count (typed read —
+  // the generic query('observations') misses typed rows on SQLite/JSON).
+  const allObs: Observation[] = await store.queryObservations({ limit: 100_000 });
 
   // Get edges to identify orphan memories
   const allMemoryIds = memories.map(m => m.id);

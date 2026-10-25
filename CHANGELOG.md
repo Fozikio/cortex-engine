@@ -2,6 +2,25 @@
 
 ## [Unreleased]
 
+## [1.10.0] — 2026-10-25
+
+### Fixed
+
+- **`recall` returns observations on the SQLite and JSON stores (#122).** It read `query('observations')`, the generic collection, while `observe`, `wonder` and `speculate` write the typed observations table, so every `recall` answered `count: 0`. Firestore keeps both in one collection, which hid the split there.
+- **`contradict` finds observations and beliefs by id on SQLite and JSON (#123).** It looked both up through the generic `get()`. Every `observation_id` from `observe`/`wonder`/`speculate` and every `belief_id` from `believe` answered "not found"; only `memory_id` and `notice`d ids worked.
+- The same generic read left `predict` (recent-context), `ruminate` (recent observations), the PE-saturation metric, and the `health`, `report`, `anomalies` and `vitals` CLI commands blind to typed observations. All of them now use the typed read.
+- Generic `query()` range filters (`<`, `<=`, `>`, `>=`) on SQLite and JSON compared numbers only, so a date filter such as `updated_at >= <Date>` never matched anything. Dates now compare as timestamps across Date, ISO-8601 string and serialized Firestore Timestamp values.
+
+### Added
+
+- `CortexStore.getObservation(id)`, `CortexStore.queryObservations({ since, until, content_type, processed, has_prediction_error, order, limit })` and `CortexStore.getBelief(id)`. On SQLite and JSON they also return rows written through the generic collection (older `notice` observations, belief revisions migrated from Firestore). A row with no `content_type` reads as `declarative`.
+- `getBeliefHistory` on SQLite and JSON merges belief entries kept in the generic `beliefs` collection. A store migrated from Firestore can hold most of its revision history there.
+
+### Changed
+
+- `notice` writes through `putObservation`, so there is one observations table. Noticed rows now enter dream consolidation on SQLite and JSON as they already did on Firestore; the create phase embeds them. Its description no longer promises an "embed-pending job", which never existed.
+- **Custom `CortexStore` implementations** must add `getObservation`, `queryObservations` and `getBelief`.
+
 ## [1.9.2] — 2026-09-28
 
 ### Fixed

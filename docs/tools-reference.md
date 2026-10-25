@@ -880,7 +880,7 @@ Manages prospective-memory reminders that surface when a trigger condition fires
 
 ### `notice`
 
-Stores an observation without embedding for low-latency logging — embedding happens later in a batch job. Returns the new observation id.
+Stores an observation without embedding for low-latency logging — embedding happens when dream consolidation promotes it. Returns the new observation id.
 
 **Use when:** You want to log a quick observation without paying embedding cost in the hot path.
 

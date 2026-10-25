@@ -12,6 +12,7 @@ import type { CortexStore, StoreCapabilities } from '../core/store.js';
 import type {
   Memory,
   Observation,
+  ObservationFilters,
   Edge,
   OpsEntry,
   OpsFilters,
@@ -67,6 +68,14 @@ export class ScopedStore implements CortexStore {
 
   putObservation(obs: Omit<Observation, 'id'>): Promise<string> {
     return this.inner.putObservation(obs);
+  }
+
+  getObservation(id: string): Promise<Observation | null> {
+    return this.inner.getObservation(id);
+  }
+
+  queryObservations(filters?: ObservationFilters): Promise<Observation[]> {
+    return this.inner.queryObservations(filters);
   }
 
   getUnprocessedObservations(limit: number): Promise<Observation[]> {
@@ -131,6 +140,10 @@ export class ScopedStore implements CortexStore {
 
   putBelief(entry: Omit<BeliefEntry, 'id'>): Promise<string> {
     return this.inner.putBelief(entry);
+  }
+
+  getBelief(id: string): Promise<BeliefEntry | null> {
+    return this.inner.getBelief(id);
   }
 
   getBeliefHistory(conceptId: string): Promise<BeliefEntry[]> {

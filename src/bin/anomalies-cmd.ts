@@ -426,12 +426,11 @@ export async function runAnomalies(args: string[]): Promise<void> {
 
   const cutoffFilter: QueryFilter = { field: 'created_at', op: '>=', value: cutoff };
   const traceCutoffFilter: QueryFilter = { field: 'timestamp', op: '>=', value: cutoff };
-  const obsCutoffFilter: QueryFilter = { field: 'created_at', op: '>=', value: cutoff };
 
   const [opsEntries, rawTraces, rawObs] = await Promise.all([
     store.queryOps({ days }),
     store.query('retrieval_traces', [traceCutoffFilter], { limit: 5000, orderBy: 'timestamp', orderDir: 'asc' }),
-    store.query('observations', [obsCutoffFilter], { limit: 2000 }),
+    store.queryObservations({ since: cutoff, limit: 2000 }),
   ]);
 
   // Silence unused variable warning — cutoffFilter used above

@@ -1,6 +1,6 @@
 /**
  * notice — fast-path observation without embedding.
- * Stored immediately, embedded during the next embed-pending job.
+ * Stored immediately; embedded when dream consolidation promotes it.
  */
 
 import type { ToolDefinition } from '../mcp/tools.js';
@@ -8,12 +8,10 @@ import type { MemoryCategory } from '../core/types.js';
 import { ALL_MEMORY_CATEGORIES } from '../core/types.js';
 import { str, optStr, optNum, optStrArray } from './_helpers.js';
 
-const OBSERVATIONS_COLLECTION = 'observations';
-
 export const noticeTool: ToolDefinition = {
   name: 'notice',
   category: 'meta',
-  description: 'Stores an observation without embedding for low-latency logging — embedding happens later in a batch job. Returns the new observation id.',
+  description: 'Stores an observation without embedding for low-latency logging — embedding happens when dream consolidation promotes it. Returns the new observation id.',
   whenToUse: 'You want to log a quick observation without paying embedding cost in the hot path.',
   doNotUse: 'You want the observation searchable immediately — use observe.',
   inputSchema: {
@@ -44,9 +42,11 @@ export const noticeTool: ToolDefinition = {
     const category = rawCategory as MemoryCategory | undefined;
 
     const store = ctx.namespaces.getStore(namespace);
-    const now = new Date().toISOString();
+    const now = new Date();
 
-    const id = await store.put(OBSERVATIONS_COLLECTION, {
+    // Typed write (#123): one observations table, so recall/contradict and
+    // dream consolidation see noticed rows the same as observe'd ones.
+    const id = await store.putObservation({
       content: text,
       source_file: file,
       source_section: '',
@@ -54,6 +54,7 @@ export const noticeTool: ToolDefinition = {
       processed: false,
       prediction_error: null,
       created_at: now,
+      updated_at: now,
       embedding: null,
       keywords: [],
       name,

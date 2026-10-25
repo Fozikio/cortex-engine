@@ -15,10 +15,18 @@ import type { CortexStore, StoreCapabilities } from '../core/store.js';
 import { CORTEX_STORE_SCHEMA_VERSION } from '../core/store.js';
 import { validateNamespace } from './_validate.js';
 import { lexicalSearch } from './_lexical.js';
+import {
+  genericDocToBelief,
+  genericDocToObservation,
+  matchesFilter,
+  matchesObservationFilters,
+  orderObservations,
+} from './_generic.js';
 import type {
   Memory,
   MemorySummary,
   Observation,
+  ObservationFilters,
   Edge,
   OpsEntry,
   OpsFilters,
@@ -251,6 +259,27 @@ export class JsonCortexStore implements CortexStore {
     return id;
   }
 
+  async getObservation(id: string): Promise<Observation | null> {
+    const obs = this.data.observations[id];
+    if (obs) return clone(obs);
+    // Legacy: observations written through the generic collection API.
+    const legacy = this.data.generic['observations']?.[id];
+    return legacy ? genericDocToObservation({ ...clone(legacy), id }) : null;
+  }
+
+  async queryObservations(filters: ObservationFilters = {}): Promise<Observation[]> {
+    const list = Object.values(this.data.observations)
+      .filter(o => matchesObservationFilters(o, filters))
+      .map(o => clone(o));
+    const seen = new Set(list.map(o => o.id));
+    for (const [id, doc] of Object.entries(this.data.generic['observations'] ?? {})) {
+      if (seen.has(id)) continue;
+      const obs = genericDocToObservation({ ...clone(doc), id });
+      if (matchesObservationFilters(obs, filters)) list.push(obs);
+    }
+    return orderObservations(list, filters);
+  }
+
   async getUnprocessedObservations(limit: number): Promise<Observation[]> {
     return Object.values(this.data.observations)
       .filter(o => !o.processed)
@@ -397,11 +426,24 @@ export class JsonCortexStore implements CortexStore {
     return id;
   }
 
+  async getBelief(id: string): Promise<BeliefEntry | null> {
+    const belief = this.data.beliefs[id];
+    if (belief) return clone(belief);
+    // Legacy: belief revisions in the generic collection.
+    const legacy = this.data.generic['beliefs']?.[id];
+    return legacy ? genericDocToBelief({ ...clone(legacy), id }) : null;
+  }
+
   async getBeliefHistory(conceptId: string): Promise<BeliefEntry[]> {
-    return Object.values(this.data.beliefs)
+    const history = Object.values(this.data.beliefs)
       .filter(b => b.concept_id === conceptId)
-      .sort((a, b) => a.changed_at.getTime() - b.changed_at.getTime())
       .map(b => clone(b));
+    const seen = new Set(history.map(b => b.id));
+    for (const [id, doc] of Object.entries(this.data.generic['beliefs'] ?? {})) {
+      if (seen.has(id) || doc['concept_id'] !== conceptId) continue;
+      history.push(genericDocToBelief({ ...clone(doc), id }));
+    }
+    return history.sort((a, b) => a.changed_at.getTime() - b.changed_at.getTime());
   }
 
   // ─── Generic ───────────────────────────────────────────────────────────────
@@ -435,20 +477,7 @@ export class JsonCortexStore implements CortexStore {
     let docs = all.map(d => clone(d));
 
     for (const f of filters) {
-      docs = docs.filter(doc => {
-        const v = doc[f.field];
-        switch (f.op) {
-          case '==': return v === f.value;
-          case '!=': return v !== f.value;
-          case '<': return typeof v === 'number' && typeof f.value === 'number' && v < f.value;
-          case '<=': return typeof v === 'number' && typeof f.value === 'number' && v <= f.value;
-          case '>': return typeof v === 'number' && typeof f.value === 'number' && v > f.value;
-          case '>=': return typeof v === 'number' && typeof f.value === 'number' && v >= f.value;
-          case 'in': return Array.isArray(f.value) && (f.value as unknown[]).includes(v);
-          case 'array-contains': return Array.isArray(v) && (v as unknown[]).includes(f.value);
-          default: return true;
-        }
-      });
+      docs = docs.filter(doc => matchesFilter(doc, f));
     }
 
     if (options?.orderBy) {

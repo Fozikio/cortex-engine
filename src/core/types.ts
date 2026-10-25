@@ -159,6 +159,21 @@ export interface Observation {
   tags?: string[];
 }
 
+/** Filters for the typed observation read (`CortexStore.queryObservations`). */
+export interface ObservationFilters {
+  /** Only observations created at or after this time. */
+  since?: Date;
+  /** Only observations created before this time. */
+  until?: Date;
+  content_type?: ObservationContentType;
+  processed?: boolean;
+  /** Only observations that carry a prediction_error score. */
+  has_prediction_error?: boolean;
+  /** Order by created_at; default 'desc' (newest first). */
+  order?: 'asc' | 'desc';
+  limit?: number;
+}
+
 // ─── Ops ──────────────────────────────────────────────────────────────────────
 
 export type OpsEntryType = 'log' | 'instruction' | 'handoff' | 'milestone' | 'decision';

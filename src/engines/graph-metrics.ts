@@ -11,6 +11,7 @@
  */
 
 import type { CortexStore } from '../core/store.js';
+import type { Observation } from '../core/types.js';
 
 // ─── Fiedler Value ────────────────────────────────────────────────────────────
 
@@ -183,31 +184,19 @@ export async function detectPESaturation(store: CortexStore): Promise<PESaturati
   const fourteenDaysAgo = new Date(now - 14 * msPerDay);
   const twentyEightDaysAgo = new Date(now - 28 * msPerDay);
 
-  // Use the generic query interface to fetch recent observations with PE data.
-  // content_type 'reflective' is the primary identity signal; also include
-  // 'declarative' that happen to carry a PE score.
-  let rawRecent: Record<string, unknown>[] = [];
-  let rawPrior: Record<string, unknown>[] = [];
+  // Fetch recent processed observations with PE data. content_type
+  // 'reflective' is the primary identity signal; also include 'declarative'
+  // that happen to carry a PE score.
+  let rawRecent: Observation[] = [];
+  let rawPrior: Observation[] = [];
 
   try {
-    rawRecent = await store.query(
-      'observations',
-      [
-        { field: 'created_at', op: '>=', value: fourteenDaysAgo },
-        { field: 'processed', op: '==', value: true },
-      ],
-      { orderBy: 'created_at', orderDir: 'desc', limit: 500 },
-    );
-
-    rawPrior = await store.query(
-      'observations',
-      [
-        { field: 'created_at', op: '>=', value: twentyEightDaysAgo },
-        { field: 'created_at', op: '<', value: fourteenDaysAgo },
-        { field: 'processed', op: '==', value: true },
-      ],
-      { orderBy: 'created_at', orderDir: 'desc', limit: 500 },
-    );
+    rawRecent = await store.queryObservations({
+      since: fourteenDaysAgo, processed: true, limit: 500,
+    });
+    rawPrior = await store.queryObservations({
+      since: twentyEightDaysAgo, until: fourteenDaysAgo, processed: true, limit: 500,
+    });
   } catch {
     // Store may not support compound queries — return neutral state.
     return {
@@ -218,13 +207,13 @@ export async function detectPESaturation(store: CortexStore): Promise<PESaturati
     };
   }
 
-  function extractPE(rows: Record<string, unknown>[]): number[] {
+  function extractPE(rows: Observation[]): number[] {
     return rows
       .filter((r) => {
-        const ct = r['content_type'];
+        const ct = r.content_type;
         return ct === 'reflective' || ct === 'declarative' || ct === undefined || ct === null;
       })
-      .map((r) => r['prediction_error'])
+      .map((r) => r.prediction_error)
       .filter((pe): pe is number => typeof pe === 'number' && pe >= 0);
   }
 

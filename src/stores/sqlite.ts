@@ -14,10 +14,18 @@ import { randomUUID } from 'node:crypto';
 import type { CortexStore, StoreCapabilities } from '../core/store.js';
 import { CORTEX_STORE_SCHEMA_VERSION } from '../core/store.js';
 import { validateNamespace } from './_validate.js';
+import {
+  genericDocToBelief,
+  genericDocToObservation,
+  matchesFilter,
+  matchesObservationFilters,
+  orderObservations,
+} from './_generic.js';
 import type {
   Memory,
   MemorySummary,
   Observation,
+  ObservationFilters,
   Edge,
   OpsEntry,
   OpsFilters,
@@ -679,6 +687,55 @@ export class SqliteCortexStore implements CortexStore {
     return id;
   }
 
+  async getObservation(id: string): Promise<Observation | null> {
+    const row = this.db.prepare(
+      `SELECT * FROM ${this.t('observations')} WHERE id = ?`
+    ).get(id) as ObservationRow | undefined;
+    if (row) return rowToObservation(row);
+
+    // Legacy: observations written through the generic collection API
+    // (`notice` before it wrote through putObservation).
+    const legacy = await this.get('observations', id);
+    return legacy ? genericDocToObservation({ ...legacy, id }) : null;
+  }
+
+  async queryObservations(filters: ObservationFilters = {}): Promise<Observation[]> {
+    const conds: string[] = [];
+    const vals: unknown[] = [];
+    if (filters.since) { conds.push('created_at >= ?'); vals.push(toISO(filters.since)); }
+    if (filters.until) { conds.push('created_at < ?'); vals.push(toISO(filters.until)); }
+    if (filters.content_type) {
+      // Rows from before content_type existed are NULL and read as declarative.
+      conds.push(filters.content_type === 'declarative'
+        ? "(content_type = ? OR content_type IS NULL)" : 'content_type = ?');
+      vals.push(filters.content_type);
+    }
+    if (filters.processed !== undefined) { conds.push('processed = ?'); vals.push(filters.processed ? 1 : 0); }
+    if (filters.has_prediction_error) conds.push('prediction_error IS NOT NULL');
+    const where = conds.length > 0 ? `WHERE ${conds.join(' AND ')}` : '';
+    const dir = filters.order === 'asc' ? 'ASC' : 'DESC';
+    const limit = filters.limit !== undefined ? `LIMIT ${Math.max(0, Math.floor(filters.limit))}` : '';
+
+    const observations = (this.db.prepare(
+      `SELECT * FROM ${this.t('observations')} ${where} ORDER BY created_at ${dir} ${limit}`
+    ).all(...vals) as ObservationRow[]).map(rowToObservation);
+
+    // Merge legacy generic_docs observations (dedup by id, typed table wins).
+    const seen = new Set(observations.map((o) => o.id));
+    const legacyRows = this.db.prepare(
+      `SELECT id, data FROM ${this.t('generic_docs')} WHERE collection = 'observations'`
+    ).all() as { id: string; data: string }[];
+    let merged = false;
+    for (const { id, data } of legacyRows) {
+      if (seen.has(id)) continue;
+      const obs = genericDocToObservation({ ...parseJSON<Record<string, unknown>>(data, {}), id });
+      if (!matchesObservationFilters(obs, filters)) continue;
+      observations.push(obs);
+      merged = true;
+    }
+    return merged ? orderObservations(observations, filters) : observations;
+  }
+
   async getUnprocessedObservations(limit: number): Promise<Observation[]> {
     return (this.db.prepare(
       `SELECT * FROM ${this.t('observations')} WHERE processed = 0 ORDER BY created_at ASC LIMIT ?`
@@ -907,10 +964,34 @@ export class SqliteCortexStore implements CortexStore {
     return id;
   }
 
+  async getBelief(id: string): Promise<BeliefEntry | null> {
+    const row = this.db.prepare(
+      `SELECT * FROM ${this.t('beliefs')} WHERE id = ?`
+    ).get(id) as BeliefRow | undefined;
+    if (row) return rowToBelief(row);
+
+    // Legacy: belief revisions in the generic collection (Firestore migrations).
+    const legacy = await this.get('beliefs', id);
+    return legacy ? genericDocToBelief({ ...legacy, id }) : null;
+  }
+
   async getBeliefHistory(conceptId: string): Promise<BeliefEntry[]> {
-    return (this.db.prepare(
+    const history = (this.db.prepare(
       `SELECT * FROM ${this.t('beliefs')} WHERE concept_id = ? ORDER BY changed_at ASC`
     ).all(conceptId) as BeliefRow[]).map(rowToBelief);
+
+    // Merge legacy generic_docs entries for this concept (dedup by id).
+    const seen = new Set(history.map((b) => b.id));
+    const legacyRows = this.db.prepare(
+      `SELECT id, data FROM ${this.t('generic_docs')}
+       WHERE collection = 'beliefs' AND json_extract(data, '$.concept_id') = ?`
+    ).all(conceptId) as { id: string; data: string }[];
+    if (legacyRows.length === 0) return history;
+    for (const { id, data } of legacyRows) {
+      if (seen.has(id)) continue;
+      history.push(genericDocToBelief({ ...parseJSON<Record<string, unknown>>(data, {}), id }));
+    }
+    return history.sort((a, b) => a.changed_at.getTime() - b.changed_at.getTime());
   }
 
   // ─── Generic ───────────────────────────────────────────────────────────────
@@ -957,20 +1038,7 @@ export class SqliteCortexStore implements CortexStore {
     let docs = rows.map(r => JSON.parse(r.data) as Record<string, unknown>);
 
     for (const f of filters) {
-      docs = docs.filter(doc => {
-        const v = doc[f.field];
-        switch (f.op) {
-          case '==': return v === f.value;
-          case '!=': return v !== f.value;
-          case '<': return typeof v === 'number' && typeof f.value === 'number' && v < f.value;
-          case '<=': return typeof v === 'number' && typeof f.value === 'number' && v <= f.value;
-          case '>': return typeof v === 'number' && typeof f.value === 'number' && v > f.value;
-          case '>=': return typeof v === 'number' && typeof f.value === 'number' && v >= f.value;
-          case 'in': return Array.isArray(f.value) && (f.value as unknown[]).includes(v);
-          case 'array-contains': return Array.isArray(v) && (v as unknown[]).includes(f.value);
-          default: return true;
-        }
-      });
+      docs = docs.filter(doc => matchesFilter(doc, f));
     }
 
     if (options?.orderBy) {

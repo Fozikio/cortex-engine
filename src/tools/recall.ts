@@ -3,7 +3,7 @@
  */
 
 import type { ToolDefinition } from '../mcp/tools.js';
-import type { QueryFilter } from '../core/types.js';
+import type { ObservationContentType } from '../core/types.js';
 import { optStr, optNum } from './_helpers.js';
 
 export const recallTool: ToolDefinition = {
@@ -29,19 +29,14 @@ export const recallTool: ToolDefinition = {
 
     const store = ctx.namespaces.getStore(namespace);
 
-    // Query observations ordered by created_at desc within the time window
-    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
-    const filters: QueryFilter[] = [
-      { field: 'created_at', op: '>=', value: cutoff },
-    ];
-    if (contentType) {
-      filters.push({ field: 'content_type', op: '==', value: contentType });
-    }
-    const observations = await store.query(
-      'observations',
-      filters,
-      { limit, orderBy: 'created_at', orderDir: 'desc' },
-    );
+    // Typed read (#122): observe/wonder/speculate write the typed table,
+    // which the generic query('observations') never sees on SQLite/JSON.
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    const observations = await store.queryObservations({
+      since,
+      content_type: contentType as ObservationContentType | undefined,
+      limit,
+    });
 
     return {
       namespace: namespace ?? ctx.namespaces.getDefaultNamespace(),
@@ -49,15 +44,15 @@ export const recallTool: ToolDefinition = {
       content_type_filter: contentType ?? 'all',
       count: observations.length,
       observations: observations.map(o => ({
-        id: o['id'],
-        content: o['content'],
-        salience: o['salience'],
-        keywords: o['keywords'],
-        content_type: o['content_type'] ?? 'declarative',
-        source_file: o['source_file'],
-        created_at: o['created_at'],
-        processed: o['processed'],
-        provenance: o['provenance'],
+        id: o.id,
+        content: o.content,
+        salience: o.salience,
+        keywords: o.keywords,
+        content_type: o.content_type ?? 'declarative',
+        source_file: o.source_file,
+        created_at: o.created_at,
+        processed: o.processed,
+        provenance: o.provenance,
       })),
     };
   },

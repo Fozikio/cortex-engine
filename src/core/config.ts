@@ -27,6 +27,14 @@ export interface NamespaceConfig {
    * the paraphrase pairs and the genuinely distinct ones.
    */
   abstraction_dedupe_threshold?: number;
+  /**
+   * Similarity an observation needs to join an existing memory in dream's
+   * cluster phase and become evidence for refining it (default: 0.75). A
+   * wrong join lets refine fold unrelated text into a memory; a missed join
+   * only mints a separate memory. Measure the nearest-memory scores of a
+   * run's observations and put the line above the joins that do not belong.
+   */
+  cluster_threshold?: number;
   /** Whether other namespaces can read this namespace's memories (default: false). */
   queryable?: boolean;
 }

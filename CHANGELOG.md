@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+## [1.11.0] — 2026-10-25
+
+### Fixed
+
+- **Refine runs the rewrite guard (#85).** Only hindsight called `checkRewrite`, so refine could drop what a definition committed to or append an observation verbatim, and the signature gate still called the run clean. In one live run, a paper summary was appended to an unrelated memory and its opening "Virgil's memoir-agent idea:" was dropped; another memory lost its closing "(v0.8.1)". Refine now declines both and keeps the old definition. Declined rewrites are counted in `phases.refine.declined`.
+- **The guard catches more:**
+  - **Version numbers:** the number check now sees them ("v0.8.1" → "0.8.1"; before, `\b` found no boundary after the `v`).
+  - **Dropped named entities:** a capitalised word from mid-sentence in the old definition that is gone from the new one.
+  - **Lost opening subject:** the subject the old definition opened with ("Virgil's …") is gone.
+  - **Growth:** with `limitGrowth` (refine sets it), a definition that grows past max(1.4×, +300 chars) is declined.
+  - **Case:** entity checks ignore case and match whole words, so "Cortex" opening a sentence is not new next to "the cortex API".
+- **Cluster joins an existing memory only at similarity ≥ 0.75**, up from 0.70. A wrong join hands refine unrelated text; a missed join only mints a separate memory. In the run above, the bad join scored 0.712 and the legitimate one 0.797. Set it per namespace with `cluster_threshold`, which `dream` and auto-consolidation now pass through.
+- **Unlabelled abstractions get a real name.** With no `Pattern:` line in the model output, the name used to be the definition's first clause cut short ("The deeper pattern is that systems—whether…"). Abstract now asks `deriveName` for a concept label, the way create names memories. `parseAbstraction` returns `labelled`.
+- `phases.hindsight.declined` is now reported by `dreamConsolidate`. It was counted but dropped from the result.
+
 ## [1.10.0] — 2026-10-25
 
 ### Fixed

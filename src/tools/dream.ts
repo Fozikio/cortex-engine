@@ -33,6 +33,7 @@ export const dreamTool: ToolDefinition = {
       similarity_merge: nsConfig.similarity_merge,
       similarity_link: nsConfig.similarity_link,
       abstraction_dedupe_threshold: nsConfig.abstraction_dedupe_threshold,
+      cluster_threshold: nsConfig.cluster_threshold,
     });
 
     // Record the run. sleep_pressure and consolidation_status both read this

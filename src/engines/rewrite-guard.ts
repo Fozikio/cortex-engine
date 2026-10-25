@@ -12,6 +12,13 @@
  * before the write means the old definition is kept and no belief-history
  * row is spent on the damage.
  *
+ * Refine runs the same guard (#85), plus three checks that came out of one
+ * live run where the signature gate called two damaging refinements clean:
+ * a named entity of the old definition is gone, the subject it opened with
+ * is gone ("Virgil's memoir-agent idea: …" lost whose idea it was), or the
+ * definition grew far past its old length (a misclustered observation
+ * appended verbatim). The first two apply to every caller.
+ *
  * One input short-circuits the text checks: a memory whose origin is
  * `source` (#114, a verbatim mirror of a file or a doc section) has no
  * rewrite that keeps everything it committed to, because what it committed
@@ -33,6 +40,13 @@ export interface RewriteGuardInput {
   evidence?: string[];
   /** The memory's origin; `source` is refused before any text check runs. */
   origin?: Memory['memory_origin'];
+  /**
+   * Refuse a rewrite that grows past max(GROWTH_RATIO × old, old + GROWTH_SLACK)
+   * characters. Refine sets it: a refinement integrates evidence into the
+   * definition, and a definition that balloons from a few observations is
+   * having the evidence appended to it (#85).
+   */
+  limitGrowth?: boolean;
 }
 
 export interface RewriteGuardResult {
@@ -43,7 +57,10 @@ export interface RewriteGuardResult {
 }
 
 const BOILERPLATE_OPENER = /^(this|the) (concept|memory|belief|refined concept|insight|pattern)\b|^concept [ab]\b/i;
-const NUMBER = /\b\d[\d.,%:/-]*\b/g;
+// A digit run not preceded by a digit or a dot, so a version string keeps its
+// number ("v0.8.1" → "0.8.1"); `\b` found no boundary between the "v" and the
+// "0" and the number check missed it (#85).
+const NUMBER = /(?<![\d.])\d(?:[\d.,%:/-]*\d)?%?/g;
 const QUOTE = /["“][^"”]{3,}["”]/g;
 const FIRST_PERSON = /\b(I|I'm|I've|I'd|I'll|my|me|mine|myself)\b/g;
 const CAPITALISED = /\b[A-Z][A-Za-z0-9#.-]{2,}\b/g;
@@ -72,6 +89,41 @@ const firstPerson = (s: string): number => (s.match(FIRST_PERSON) ?? []).length;
 const hedges = (s: string): Set<string> => new Set((s.match(HEDGE) ?? []).map((h) => h.toLowerCase()));
 const entities = (s: string): Set<string> =>
   new Set((s.match(CAPITALISED) ?? []).filter((w) => !STOP_CAPS.has(w)));
+
+/** Lower-cased word tokens, for "is this name still mentioned, in any case". */
+const words = (s: string): Set<string> =>
+  new Set(s.toLowerCase().match(/[a-z0-9#][a-z0-9#.-]*[a-z0-9#]|[a-z0-9#]/g) ?? []);
+
+const GROWTH_RATIO = 1.4;
+const GROWTH_SLACK = 300;
+
+/**
+ * Capitalised words that are not the first word of a sentence or line — the
+ * ones that name something, as opposed to "Conclusion:" or "Fixed" opening a
+ * sentence. Used for the dropped-entity check, where a sentence-initial word
+ * reworded away would be a false alarm.
+ */
+function namedEntities(s: string): Set<string> {
+  const found = new Set<string>();
+  for (const sentence of s.split(/(?<=[.!?:;])\s+|\n+/)) {
+    const body = sentence.replace(/^[^A-Za-z0-9]+/, '');
+    for (const w of body.match(CAPITALISED) ?? []) {
+      if (!STOP_CAPS.has(w) && !body.startsWith(w)) found.add(w);
+    }
+  }
+  return found;
+}
+
+/**
+ * The capitalised subject a definition opens with ("Virgil's memoir-agent
+ * idea: …" → "Virgil"), or null when it opens with a function word. Losing it
+ * loses whose idea, which system, or which person the memory is about.
+ */
+function openingSubject(s: string): string | null {
+  const m = s.trim().match(/^([A-Z][A-Za-z0-9#.-]{2,})(?:['’]s\b)?/);
+  if (!m || STOP_CAPS.has(m[1])) return null;
+  return m[1];
+}
 
 /** True when `text` opens with `name` followed by a separator or a copula. */
 function opensWithName(text: string, name: string): boolean {
@@ -106,9 +158,26 @@ export function checkRewrite(input: RewriteGuardInput): RewriteGuardResult {
 
   if (firstPerson(old) > 0 && firstPerson(next) === 0) reasons.push('first person became third person');
 
-  const known = entities(`${old} ${evidence}`);
-  const foreign = [...entities(next)].filter((w) => !known.has(w));
+  // A word the old text or evidence already uses, in any case, is not new:
+  // "Cortex" opening a sentence is the same thing as "the cortex API".
+  const knownWords = words(`${old} ${evidence}`);
+  const foreign = [...entities(next)].filter((w) => !knownWords.has(w.toLowerCase()));
   if (foreign.length > 0) reasons.push(`new entities: ${foreign.slice(0, 8).join(', ')}`);
+
+  // What the old definition named must still be named (#85: refine
+  // generalised specifics away and dropped whose idea a memory recorded).
+  // Case-insensitive: "the cortex REST API" still names Cortex.
+  const nextWords = words(next);
+  const subject = openingSubject(old);
+  if (subject && !nextWords.has(subject.toLowerCase())) reasons.push(`lost opening subject: ${subject}`);
+  const dropped = [...namedEntities(old)]
+    .filter((w) => w !== subject && !nextWords.has(w.toLowerCase()));
+  if (dropped.length > 0) reasons.push(`dropped entities: ${dropped.slice(0, 8).join(', ')}`);
+
+  if (input.limitGrowth) {
+    const limit = Math.max(Math.round(old.length * GROWTH_RATIO), old.length + GROWTH_SLACK);
+    if (next.length > limit) reasons.push(`grew ${old.length} → ${next.length} chars (limit ${limit})`);
+  }
 
   const allowed = hedges(`${old} ${evidence}`);
   const added = [...hedges(next)].filter((h) => !allowed.has(h));

@@ -36,10 +36,24 @@ const ABSTRACT_NOUNS = new Set([
 export const MAX_TERM_SHARE = 0.25;
 /** Pool size below which the share rule is not applied. */
 export const MIN_POOL_FOR_SHARE = 20;
+/**
+ * Term-set Jaccard at or above which two members restate one fact and count
+ * as one. On one store, edge-linked pairs sat at p95 0.094 / p99 0.294; two
+ * memories retelling Muzak's "Stimulus Progression" scored 0.308, and their
+ * "abstraction" was a third copy of the same fact.
+ */
+export const RESTATE_JACCARD = 0.25;
 
-/** Light normalisation so "hooks"/"hook" and "edges"/"edge" meet. */
+function jaccard(a: Set<string>, b: Set<string>): number {
+  let shared = 0;
+  for (const x of a) if (b.has(x)) shared++;
+  const union = a.size + b.size - shared;
+  return union === 0 ? 0 : shared / union;
+}
+
+/** Light normalisation so "hooks"/"hook" and "edges"/"edge" meet; "stimulus", "analysis", "class" stay whole. */
 export function normaliseTerm(word: string): string {
-  return word.length > 4 && word.endsWith('s') && !word.endsWith('ss') ? word.slice(0, -1) : word;
+  return word.length > 4 && word.endsWith('s') && !/(?:ss|us|is)$/.test(word) ? word.slice(0, -1) : word;
 }
 
 export function termSet(text: string): Set<string> {
@@ -99,7 +113,16 @@ export function checkMechanism(input: MechanismCheckInput): MechanismCheckResult
   if (!mechanism) reasons.push('no mechanism stated');
   if (citedMembers.length < 2) reasons.push(`mechanism spans ${citedMembers.length} of the shown members (need 2)`);
 
-  const memberTerms = citedMembers.map((m) => termSet(`${m.name} ${m.text}`));
+  // Members that restate one fact count once: a "synthesis" of two retellings
+  // is a third retelling, not an abstraction.
+  const memberTerms: Array<Set<string>> = [];
+  for (const m of citedMembers) {
+    const terms = termSet(`${m.name} ${m.text}`);
+    if (!memberTerms.some((t) => jaccard(t, terms) >= RESTATE_JACCARD)) memberTerms.push(terms);
+  }
+  if (citedMembers.length >= 2 && memberTerms.length < 2) {
+    reasons.push(`cited members restate one another (term overlap >= ${RESTATE_JACCARD})`);
+  }
   // "Too common" means something only in a pool big enough to have a
   // background; in a handful of memories any shared term is a large share.
   const limit = input.poolSize < MIN_POOL_FOR_SHARE ? Infinity : Math.floor(input.poolSize * MAX_TERM_SHARE);
@@ -108,7 +131,7 @@ export function checkMechanism(input: MechanismCheckInput): MechanismCheckResult
     && memberTerms.filter((s) => s.has(term)).length >= 2
     && (input.df.get(term) ?? 0) <= limit,
   );
-  if (mechanism && citedMembers.length >= 2 && sharedTerms.length === 0) {
+  if (mechanism && memberTerms.length >= 2 && sharedTerms.length === 0) {
     reasons.push('mechanism names no concrete term the cited members share');
   }
 

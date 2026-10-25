@@ -72,3 +72,30 @@ describe('checkMechanism', () => {
     expect(checkMechanism({ mechanism: 'a hook', cited: 'Push gate fixed', members, ...smallPool }).ok).toBe(false);
   });
 });
+
+describe('checkMechanism — restatements (#147)', () => {
+  // Shapes of the two Muzak memories one copy run "abstracted" into a third copy.
+  const A = { name: 'Muzak was designed to sedate anxious elevator riders', text: "Muzak was designed to sedate anxious elevator riders through functional acoustic engineering that used patented 'Stimulus Progression', a system of 15-minute blocks engineered to create a subconscious sense of forward movement." };
+  const B = { name: 'Muzak Stimulus Progression was a patented system', text: "Muzak's 'Stimulus Progression' was a patented system for behavioral engineering through ambient sound, using 15-minute blocks of music engineered to create a subconscious sense of forward movement." };
+
+  it('counts two retellings of one fact as one member', () => {
+    const r = checkMechanism({
+      mechanism: 'Stimulus Progression, 15-minute blocks of engineered music',
+      cited: [A.name, B.name],
+      members: [A, B], df: documentFrequency([A.text, B.text]), poolSize: 2,
+    });
+    expect(r.ok).toBe(false);
+    expect(r.reasons.join(' ')).toMatch(/restate one another/);
+  });
+
+  it('keeps "stimulus" whole', () => {
+    const r = checkMechanism({
+      mechanism: 'a hook that blocks a command',
+      cited: ['Push gate fixed', 'Guardrail hook blocks deletes'],
+      members, ...smallPool,
+    });
+    expect(r.ok).toBe(true);
+    expect(checkMechanism({ mechanism: 'stimulus', cited: [A.name, PUSH.name], members: [A, PUSH], df: new Map(), poolSize: 2 }).sharedTerms)
+      .not.toContain('stimulu');
+  });
+});

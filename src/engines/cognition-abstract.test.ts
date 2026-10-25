@@ -155,7 +155,10 @@ describe('abstractCrossDomain (#147)', () => {
     const store = new SqliteCortexStore(':memory:');
     const ids = await seedHooks(store);
 
-    const result = await abstractCrossDomain(store, makeEmbed(), makeLLM(), { abstraction_attempts: 1 });
+    // A seed is drawn at random and the family memory has no related members,
+    // so give the phase enough attempts to draw a hook seed; the within-run
+    // dedupe keeps it to one write.
+    const result = await abstractCrossDomain(store, makeEmbed(), makeLLM(), { abstraction_attempts: 20 });
 
     expect(result.abstractions).toBe(1);
     const [abs] = await minted(store);
@@ -198,7 +201,7 @@ describe('abstractCrossDomain (#147)', () => {
       abstraction: 'The deeper pattern is that agency and constraint shape systems through friction. It matters because boundaries define what can be built.',
     };
 
-    const result = await abstractCrossDomain(store, makeEmbed(), makeLLM(theme), { abstraction_attempts: 3 });
+    const result = await abstractCrossDomain(store, makeEmbed(), makeLLM(theme), { abstraction_attempts: 20 });
 
     expect(result.abstractions).toBe(0);
     expect(result.rejected).toBeGreaterThan(0);

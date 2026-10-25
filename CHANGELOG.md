@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+## [1.12.0] — 2026-10-25
+
+### Changed
+
+- **Abstract samples members that already relate (#147).** Before, each member came from a different random category, so the model was handed unrelated memories and asked what connects them. It always found something by climbing to a theme: one live run linked a failed MCP integration to a person's family history. Each attempt now seeds on a recent memory, and its members are the seed's graph neighbours (any relation but `exemplifies`) plus near neighbours at cosine ≥ `abstraction_relate_floor` (default 0.50). Members from new categories are preferred. With fewer than two related members, the model is not asked at all.
+  - Why 0.50: on one store, random pairs scored p90 0.43 and edge-linked pairs a median of 0.37–0.42, so the graph carries most of the signal.
+  - Existing abstractions are never members, so syntheses don't compound on syntheses.
+- **An abstraction must name a concrete shared mechanism.** `abstract-synthesis` v3 asks for JSON (`mechanism`, `members`, `name`, `abstraction`) and makes "none" the expected answer. The new `checkMechanism` keeps a synthesis only when its mechanism contains a term that at least two cited members' own text uses. The term must not be an abstract noun such as "complexity", "friction" or "identity", and in pools of 20 or more it must appear in no more than 25% of memories. Refused syntheses are counted in `phases.abstract.rejected`.
+- **Abstractions start at salience 0.5** (`ABSTRACTION_SALIENCE`), down from 0.8, so an unverified synthesis no longer outranks most organic memories. They link `exemplifies` only to the members the mechanism spans, and each edge's evidence names the shared terms.
+
 ## [1.11.0] — 2026-10-25
 
 ### Fixed

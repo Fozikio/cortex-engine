@@ -129,31 +129,49 @@ describe('source-origin memories are never consolidated', () => {
 
   it('REM abstraction never takes a source memory as a cluster member', async () => {
     const store = new SqliteCortexStore(':memory:');
-    // Three source memories and three organic ones, six categories, so the
-    // phase samples four per attempt and, with source excluded, still has the
-    // three categories it needs to abstract at all.
+    // Three source memories and three organic ones, all joined in the graph,
+    // so every organic seed has source memories among its neighbours (#147:
+    // members are the seed's related memories). Every definition names the
+    // weather, so a mechanism citing any two shown members passes the check.
     const sourceIds = new Set<string>();
     const organicIds = new Set<string>();
+    const names: string[] = [];
     const seed = async (name: string, definition: string, category: MemoryCategory, embedding: number[], origin: Memory['memory_origin']) => {
       const id = await store.putMemory(memory({ name, definition, category, embedding, memory_origin: origin }));
       (origin === 'source' ? sourceIds : organicIds).add(id);
+      names.push(name);
     };
-    await seed('The sky is blue', 'The sky is blue on clear days.', 'belief', SKY, 'source');
-    await seed('The sea is deep', 'The sea is deep and cold.', 'topic', SEA, 'source');
-    await seed('Clouds are white', 'Clouds are white and drift.', 'value', CLOUD, 'source');
-    await seed('The sun is bright', 'The sun is bright at noon.', 'pattern', SUN, 'organic');
-    await seed('Rain is wet', 'Rain is wet and falls.', 'insight', RAIN, 'organic');
-    await seed('Wind is loud', 'Wind is loud at night.', 'project', WIND, 'organic');
+    await seed('The sky is blue', 'The sky is blue in clear weather.', 'belief', SKY, 'source');
+    await seed('The sea is deep', 'The sea is deep and cold in any weather.', 'topic', SEA, 'source');
+    await seed('Clouds are white', 'Clouds are white and drift with the weather.', 'value', CLOUD, 'source');
+    await seed('The sun is bright', 'The sun is bright at noon in dry weather.', 'pattern', SUN, 'organic');
+    await seed('Rain is wet', 'Rain is wet weather that falls.', 'insight', RAIN, 'organic');
+    await seed('Wind is loud', 'Wind is loud in stormy weather at night.', 'project', WIND, 'organic');
+    const all = [...sourceIds, ...organicIds];
+    for (const a of all) for (const b of all) {
+      if (a < b) await store.putEdge({ source_id: a, target_id: b, relation: 'related', weight: 0.5, evidence: 'weather', created_at: new Date() });
+    }
 
     // Distinct embedding per attempt so the within-run check does not short-circuit sampling.
     let n = 0;
     const embed: EmbedProvider = { embed: vi.fn(async () => { n++; return [Math.cos(n), Math.sin(n), 0.1 * n]; }) };
-    const llm = makeLLM(
-      'The sky, the sea, the clouds, the sun, the rain and the wind are one weather system. The blue sky, the deep sea, the white clouds, the bright sun, the wet rain and the loud wind each show a part of it, and that matters because no part explains the weather alone.',
-    );
+    const prompts: string[] = [];
+    const llm = makeLLM();
+    llm.generateJSON.mockImplementation(async (prompt: string) => {
+      prompts.push(prompt);
+      return {
+        mechanism: 'each is a kind of weather',
+        members: names,
+        name: 'One weather system',
+        abstraction: 'The sun, the rain and the wind are each a kind of weather, and none explains the weather alone. That matters because the weather is the system they belong to.',
+      };
+    });
 
     const result = await abstractCrossDomain(store, embed, llm, { abstraction_attempts: 10, abstraction_dedupe_threshold: 1.01 });
 
+    for (const p of prompts) {
+      for (const sourceName of ['The sky is blue', 'The sea is deep', 'Clouds are white']) expect(p).not.toContain(sourceName);
+    }
     expect(result.abstractions).toBeGreaterThan(0);
     const minted = (await store.getAllMemories()).filter((m) => m.memory_origin === 'abstract');
     expect(minted.length).toBe(result.abstractions);

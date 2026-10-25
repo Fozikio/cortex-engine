@@ -123,15 +123,29 @@ export const EDGE_DISCOVER_GRAPH = definePrompt<{
   `If no new edges are needed, respond with: []`,
 );
 
-/** Phase 6 — cross-domain abstraction synthesis. */
+/**
+ * Phase 6 — cross-domain abstraction synthesis. v3 (#147): the members are
+ * already related in the graph, "none" is the default answer, and the model
+ * must name the concrete mechanism and which members it spans, so the
+ * engine can check the mechanism against the members' own text.
+ */
 export const ABSTRACT_SYNTHESIS = definePrompt<{ conceptLines: string }>(
-  'abstract-synthesis', 2, (p) =>
-    `Find a higher-level principle or pattern that connects these diverse concepts:\n\n` +
+  'abstract-synthesis', 3, (p) =>
+    `These memories are already connected in a memory graph:\n\n` +
     `${p.conceptLines}\n\n` +
-    `Write a concise abstraction (2-4 sentences) that captures the deeper connection. ` +
-    `Be specific — state the pattern in plain words in the first sentence, then explain why it matters, naming the concepts it connects. ` +
-    `Write plain prose only: no title line, no "Pattern:" label, no markdown, no bullet points. ` +
-    `If no meaningful connection exists, respond with 'NO_ABSTRACTION'.`,
+    `Is there one concrete mechanism that at least two of them share — the same tool, process, failure, ` +
+    `decision, number or cause, named in their own words? Most groups have none; "none" is the expected answer. ` +
+    `A theme is not a mechanism: "complexity", "integrity", "agency and constraint", "friction", "subtraction", ` +
+    `"systems evolve" connect anything and do not count. Never connect a person's private life to a technical ` +
+    `system through a theme.\n\n` +
+    `If there is a real shared mechanism, write it as a 2-3 sentence abstraction: the mechanism in plain words ` +
+    `first, then what it explains across the members you name. Plain prose, no markdown.\n\n` +
+    `Respond with JSON only — no preamble:\n` +
+    `{"none": true}\n` +
+    `or\n` +
+    `{"mechanism": "the shared mechanism in a few words, using the members' own terms", ` +
+    `"members": ["exact names of the members it spans, at least two"], ` +
+    `"name": "a short concept label (3-7 words)", "abstraction": "the 2-3 sentences"}`,
 );
 
 /** Phase 7 — hindsight audit of an entrenched memory. */

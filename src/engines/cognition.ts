@@ -84,7 +84,7 @@ function dreamFailure(label: string, err: unknown): void {
 export interface DreamResult {
   phases: {
     cluster: { clustered: number; unclustered: number };
-    refine: { refined: number };
+    refine: { refined: number; declined?: number };
     create: { created: number };
     connect: { edges_discovered: number };
     score: { scored: number };
@@ -119,7 +119,7 @@ export interface DreamOptions {
   create_limit?: number;
   /** Max abstraction attempts in REM phase (default: 5) */
   abstraction_attempts?: number;
-  /** Similarity threshold for clustering (default: 0.70) */
+  /** Similarity an observation needs to join an existing memory (default: 0.75, see DEFAULT_CLUSTER_THRESHOLD) */
   cluster_threshold?: number;
   /** Similarity threshold for detecting duplicate abstractions (default: 0.88) */
   abstraction_novelty_threshold?: number;
@@ -212,6 +212,11 @@ export interface ClusterPhaseResult {
 
 export interface RefinePhaseResult {
   refined: number;
+  /**
+   * Rewrites the guard refused (#85): the old definition is kept and no
+   * belief row is written. See checkRewrite with limitGrowth.
+   */
+  declined?: number;
 }
 
 export interface CreatePhaseResult {
@@ -259,6 +264,18 @@ export interface HindsightPhaseResult {
 const CLUSTER_NEIGHBOURS = 5;
 
 /**
+ * Similarity an observation needs to join an existing memory (and become
+ * evidence for refining it). Joining is the riskier route: a wrong join
+ * hands refine unrelated text to fold into someone's memory, while a
+ * missed join only mints a separate memory that connect can link. Was 0.70;
+ * on one store (qwen3-embedding:0.6b) a paper summary joined an unrelated
+ * memoir-idea memory at 0.712 and refine appended it, while the legitimate
+ * same-journal join in that run scored 0.797 (#85). Tune per deployment with
+ * the namespace's `cluster_threshold`.
+ */
+const DEFAULT_CLUSTER_THRESHOLD = 0.75;
+
+/**
  * Route unprocessed observations to the nearest existing memory that is not
  * a source mirror. Observations above cluster_threshold are linked and marked
  * processed. The rest are returned as unclustered for later phases.
@@ -269,7 +286,7 @@ async function clusterObservations(
   options: DreamOptions,
 ): Promise<ClusterPhaseResult> {
   const limit = options.observation_limit ?? 50;
-  const threshold = options.cluster_threshold ?? 0.70;
+  const threshold = options.cluster_threshold ?? DEFAULT_CLUSTER_THRESHOLD;
 
   let clustered = 0;
   const unclusteredObs: Observation[] = [];
@@ -373,6 +390,7 @@ async function refineMemories(
   clusteredEvidence?: Map<string, string[]>,
 ): Promise<RefinePhaseResult> {
   let refined = 0;
+  let declined = 0;
 
   const recentMemories = await safeStoreRead(
     store.getRecentMemories(7, 100),
@@ -448,6 +466,24 @@ async function refineMemories(
         continue;
       }
 
+      // The rewrite guard hindsight uses, with the growth limit on (#85): a
+      // refinement keeps what the definition committed to — its numbers,
+      // quotations, voice, named entities and opening subject — and integrates
+      // the evidence rather than appending it.
+      const guard = checkRewrite({
+        name: memory.name,
+        old: memory.definition,
+        next: newDefinition.trim(),
+        evidence: usableEvidence,
+        origin: memory.memory_origin,
+        limitGrowth: true,
+      });
+      if (!guard.ok) {
+        console.error(`[dream:refine] Declined rewrite for ${memory.id}: ${guard.reasons.join('; ')}`);
+        declined++;
+        continue;
+      }
+
       // Embed before the transaction — LLM calls inside withTransaction
       // would hold the writer mutex open. See docs/concurrency.md.
       const totalEvidence = allEvidence.length;
@@ -516,7 +552,7 @@ async function refineMemories(
     }
   }
 
-  return { refined };
+  return { refined, declined };
 }
 
 // ─── Phase 3: Create ──────────────────────────────────────────────────────────
@@ -1021,7 +1057,7 @@ async function scoreMemories(
  * Returns null when nothing but a title is present: a label with no body is
  * not an abstraction.
  */
-export function parseAbstraction(raw: string): { name: string; definition: string } | null {
+export function parseAbstraction(raw: string): { name: string; definition: string; labelled: boolean } | null {
   const text = stripMarkdownFormatting(raw ?? '').trim();
   if (!text) return null;
 
@@ -1056,10 +1092,11 @@ export function parseAbstraction(raw: string): { name: string; definition: strin
   if (!definition) return null;
 
   name = name.replace(/\s+/g, ' ').replace(/[\s.!?;:,]+$/, '').trim();
+  const labelled = name.length > 0;
   if (!name) name = deriveNameHeuristic(definition);
   else if (name.length > NAME_MAX_LEN) name = deriveNameHeuristic(name);
 
-  return { name, definition };
+  return { name, definition, labelled };
 }
 
 /**
@@ -1180,7 +1217,12 @@ export async function abstractCrossDomain(
         continue;
       }
 
-      const memName = parsed.name;
+      // No label line means the heuristic name is the definition's first
+      // clause cut short ("The deeper pattern is that systems—whether…"),
+      // which says nothing about the pattern (#85). Ask for a concept label
+      // the way create names its memories; deriveName falls back to the
+      // heuristic itself if the LLM fails.
+      const memName = parsed.labelled ? parsed.name : await deriveName(trimmed, llm);
 
       // Abstraction memory + its provenance edges land together. Otherwise
       // a partial commit produces an "insight" with no traceable sources.
@@ -1710,13 +1752,17 @@ export async function dreamConsolidate(
   return {
     phases: {
       cluster: { clustered: clusterResult.clustered, unclustered: clusterResult.unclustered },
-      refine: { refined: refineResult.refined },
+      refine: { refined: refineResult.refined, declined: refineResult.declined ?? 0 },
       create: { created: createResult.created },
       connect: { edges_discovered: connectResult.edges_discovered },
       score: { scored: scoreResult.scored },
       report: { text: reportResult.text },
       abstract: { abstractions: abstractResult.abstractions },
-      hindsight: { reviewed: hindsightResult.reviewed, revised: hindsightResult.revised },
+      hindsight: {
+        reviewed: hindsightResult.reviewed,
+        revised: hindsightResult.revised,
+        declined: hindsightResult.declined,
+      },
     },
     total_processed: clusterResult.clustered + createResult.created,
     duration_ms,

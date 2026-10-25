@@ -85,3 +85,67 @@ describe('checkRewrite', () => {
     expect(r).toEqual({ ok: true, reasons: [] });
   });
 });
+
+// #85: two refinements one live run's signature gate called clean.
+const MEMOIR_OLD =
+  "Virgil's memoir-agent idea: feed someone's draft memoir into a cortex agent, let it 'experience' the story through cortex's cognitive pipeline (observe, wonder, believe, dream), keep the original as truth reference, then write from the 'lived' experience rather than shuffling text through a personality prompt. The key insight: current AI writing tools fail because they optimize for tokens and generic rules, stripping soul from writing. An agent that has actually processed the material through prediction-error gating and belief evolution would produce output with texture because the processing has texture. This is a potential product direction for cortex that nobody else could do.";
+const MEMOIR_BLED =
+  "Feed someone's draft memoir into a cortex agent, let it 'experience' the story through cortex's cognitive pipeline (observe, wonder, believe, dream), keep the original as truth reference, then write from the 'lived' experience rather than shuffling text through a personality prompt. The key insight: current AI writing tools fail because they optimize for tokens and generic rules, stripping soul from writing. An agent that has actually processed the material through prediction-error gating and belief evolution would produce output with texture because the processing has texture. Generative Agents (Park et al., UIST 2023; arXiv 2304.03442v2) use a memory stream of observation, reflection, and plan records with retrieval scores based on recency (exponential decay, factor 0.995 per game hour since last access), importance (LLM-rated 1–10), and relevance (embedding cosine), and reflections are triggered when summed importance exceeds 150; cortex differs in using FSRS retrievability, novelty/prediction-error gating, and dream() consolidation over a graph, but lacks explicit evidence pointers in reflections and reflection scheduling based on importance accumulation.";
+const PAPER_EVIDENCE =
+  'Generative Agents (Park et al., UIST 2023) use a memory stream with recency, importance and relevance; reflections fire when summed importance exceeds 150. Cortex uses FSRS retrievability.';
+
+const CONSISTENCY_OLD =
+  'The audit found one failure shape three times, and the unqueued-choice check was never logged because it lived in prose. Conclusion: consistency is plumbing I maintain, not a trait I have. I wired the check the same hour: the agency check became an ops decision loaded at every session start (v0.8.1).';
+const CONSISTENCY_DROPPED =
+  'The audit found one failure shape three times, and the unqueued-choice check was never logged because it lived in prose. Consistency is plumbing I maintain, not a trait I have, and every part of me that drifted did so where nothing measured.';
+
+describe('checkRewrite — #85 refine damage', () => {
+  it('keeps the number in a version string', () => {
+    const r = checkRewrite({ name: 'Consistency as Plumbing', old: CONSISTENCY_OLD, next: CONSISTENCY_DROPPED });
+    expect(r.ok).toBe(false);
+    expect(r.reasons).toContain('dropped numbers: 0.8.1');
+  });
+
+  it('does not count a reworded sentence-initial word as a dropped entity', () => {
+    const r = checkRewrite({ name: 'Consistency as Plumbing', old: CONSISTENCY_OLD, next: CONSISTENCY_DROPPED });
+    expect(r.reasons.join(' ')).not.toMatch(/Conclusion/);
+  });
+
+  it('refuses a rewrite that loses the opening subject and balloons (the real 688 → 1,177 refinement)', () => {
+    const r = checkRewrite({
+      name: "Virgil's memoir-agent idea",
+      old: MEMOIR_OLD,
+      next: MEMOIR_BLED,
+      evidence: [PAPER_EVIDENCE],
+      limitGrowth: true,
+    });
+    expect(r.ok).toBe(false);
+    expect(r.reasons).toContain('lost opening subject: Virgil');
+    expect(r.reasons.some((x) => x.startsWith('grew '))).toBe(true);
+  });
+
+  it('applies the growth limit only when asked', () => {
+    const r = checkRewrite({ name: 'x', old: 'Short and specific.', next: `Short and specific. ${'More words follow here. '.repeat(30)}`, limitGrowth: false });
+    expect(r.reasons.some((x) => x.startsWith('grew '))).toBe(false);
+    const limited = checkRewrite({ name: 'x', old: 'Short and specific.', next: `Short and specific. ${'More words follow here. '.repeat(30)}`, limitGrowth: true });
+    expect(limited.reasons.some((x) => x.startsWith('grew '))).toBe(true);
+  });
+
+  it('flags a named entity dropped from mid-sentence, matching case-insensitively', () => {
+    const old = 'The dashboard reads the cortex search API and posts to GitHub Project Board 6.';
+    expect(checkRewrite({ name: 'Dashboard', old, next: 'The dashboard reads the cortex search API and posts to a board 6.' }).reasons)
+      .toContain('dropped entities: GitHub, Project');
+    expect(checkRewrite({ name: 'Dashboard', old, next: 'The dashboard reads the Cortex search API and posts to github project board 6.' }).ok)
+      .toBe(true);
+  });
+
+  it('passes a refinement that integrates evidence without losing anything', () => {
+    const r = checkRewrite({
+      name: "Virgil's memoir-agent idea",
+      old: MEMOIR_OLD,
+      next: `${MEMOIR_OLD} A memoir processed this way keeps the writer's own voice.`,
+      limitGrowth: true,
+    });
+    expect(r).toEqual({ ok: true, reasons: [] });
+  });
+});

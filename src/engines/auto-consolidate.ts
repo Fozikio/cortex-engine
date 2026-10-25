@@ -161,6 +161,7 @@ export class SessionConsolidator {
       observation_limit: 50,
       similarity_merge: nsConfig.similarity_merge,
       similarity_link: nsConfig.similarity_link,
+      cluster_threshold: nsConfig.cluster_threshold,
     }).then(() => {}).catch((err: unknown) => {
       // Auto-consolidation is best-effort — never crash the serving process.
       if (process.env['CORTEX_DEBUG']) {

@@ -25,6 +25,7 @@ describe('parseAbstraction', () => {
     expect(parsed).toEqual({
       name: 'Silent Success as a Structural Failure Mode',
       definition: 'This abstraction connects the silent wander failure and the markdown folder. It matters because invisible failure becomes systemic.',
+      labelled: true,
     });
   });
 
@@ -49,6 +50,8 @@ describe('parseAbstraction', () => {
     const parsed = parseAbstraction(text);
     expect(parsed?.name).toBe('Silent failure is structural, not incidental');
     expect(parsed?.definition).toBe(text);
+    // Unlabelled: abstractCrossDomain asks deriveName for a real label (#85).
+    expect(parsed?.labelled).toBe(false);
   });
 
   it('returns null for a title with no body', () => {

@@ -1,5 +1,5 @@
 /**
- * Abstract phase output hygiene (#83).
+ * Abstract phase output hygiene (#83) and member sampling / shared mechanism (#147).
  *
  * Three things one live store showed in every run: the model's title line
  * (`Pattern: *X*`) stored verbatim as the memory name with its asterisks and
@@ -9,13 +9,13 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import { abstractCrossDomain, parseAbstraction } from './cognition.js';
+import { abstractCrossDomain, parseAbstraction, ABSTRACTION_SALIENCE } from './cognition.js';
 import { stripMarkdownFormatting } from './thought-quality.js';
 import { newFSRSState } from './fsrs.js';
 import { SqliteCortexStore } from '../stores/sqlite.js';
 import type { EmbedProvider } from '../core/embed.js';
 import type { LLMProvider } from '../core/llm.js';
-import type { Memory, MemoryCategory } from '../core/types.js';
+import type { Edge, Memory, MemoryCategory } from '../core/types.js';
 
 describe('parseAbstraction', () => {
   it('splits a "Pattern: *Title*" line from the body and drops the markdown', () => {
@@ -78,94 +78,174 @@ describe('stripMarkdownFormatting single emphasis', () => {
 
 // ─── Phase behaviour ──────────────────────────────────────────────────────────
 
-const VEC: Record<string, number[]> = {
-  sky: [1, 0, 0],
-  sea: [0, 1, 0],
-  cloud: [0, 0, 1],
-  sun: [0, 0.6, 0.8],
-};
 const ABSTRACT_VEC = [0.5, 0.5, 0.5];
 
-function memory(name: string, definition: string, category: MemoryCategory, embedding: number[], faded = false): Omit<Memory, 'id'> {
+function memory(
+  name: string,
+  definition: string,
+  category: MemoryCategory,
+  embedding: number[],
+  extra: Partial<Omit<Memory, 'id'>> = {},
+): Omit<Memory, 'id'> {
   const now = new Date();
   return {
-    name, definition, category, embedding, faded,
-    salience: faded ? 0.3 : 0.7, confidence: 0.7, access_count: 0,
+    name, definition, category, embedding,
+    salience: extra.faded ? 0.3 : 0.7, confidence: 0.7, access_count: 0,
     created_at: now, updated_at: now, last_accessed: now,
     source_files: [], tags: [], fsrs: newFSRSState(),
+    ...extra,
   };
 }
 
 const ABSTRACTION =
-  'The sky, the sea, the clouds and the sun are one weather system. The blue sky, the deep sea, the white clouds and the bright sun each show a part of it, and that matters because no part explains the weather alone.';
+  'A hook that blocks a command before it runs is only as good as its match: the push gate matched text and denied everything, the guardrail matches the command and blocks only the delete. Both say the block belongs on the command, not on the words around it.';
 
-function makeLLM(text = ABSTRACTION): LLMProvider {
+/** The synthesis a model returns when the mechanism is real. */
+const GOOD = {
+  mechanism: 'a hook that blocks a command before it runs',
+  members: ['Push gate fixed', 'Guardrail hook blocks deletes'],
+  name: 'Hooks that block commands',
+  abstraction: ABSTRACTION,
+};
+
+type Answer = Record<string, unknown>;
+
+function makeLLM(answer: Answer | (() => Answer) = GOOD): LLMProvider & { prompts: string[] } {
+  const prompts: string[] = [];
   return {
-    name: 'fake', modelId: 'fake',
-    generate: vi.fn(async () => text),
-    generateJSON: vi.fn(async () => ({})),
-  } as unknown as LLMProvider;
+    name: 'fake', modelId: 'fake', prompts,
+    generate: vi.fn(async () => 'Unused label'),
+    generateJSON: vi.fn(async (prompt: string) => {
+      prompts.push(prompt);
+      return typeof answer === 'function' ? answer() : answer;
+    }),
+  } as unknown as LLMProvider & { prompts: string[] };
 }
 
 function makeEmbed(): EmbedProvider {
   return { embed: vi.fn(async () => ABSTRACT_VEC) };
 }
 
-async function seedThreeCategories(store: SqliteCortexStore): Promise<void> {
-  await store.putMemory(memory('The sky is blue', 'The sky is blue on clear days.', 'belief', VEC.sky));
-  await store.putMemory(memory('The sea is deep', 'The sea is deep and cold.', 'topic', VEC.sea));
-  await store.putMemory(memory('Clouds are white', 'Clouds are white and drift.', 'value', VEC.cloud));
+async function link(store: SqliteCortexStore, a: string, b: string, relation: Edge['relation'] = 'related'): Promise<void> {
+  await store.putEdge({ source_id: a, target_id: b, relation, weight: 0.5, evidence: 'x', created_at: new Date() });
 }
 
-describe('abstractCrossDomain', () => {
+/**
+ * Three hook memories joined in the graph, and one memory about a person
+ * with no edges and an orthogonal embedding — the kind of member the old
+ * random-category sampling handed the model next to technical memories.
+ */
+async function seedHooks(store: SqliteCortexStore): Promise<Record<string, string>> {
+  const ids: Record<string, string> = {};
+  ids.push = await store.putMemory(memory('Push gate fixed', 'The push gate hook denied every Bash command containing git push; fixed by matching the command, not the text.', 'belief', [1, 0, 0]));
+  ids.guard = await store.putMemory(memory('Guardrail hook blocks deletes', 'The guardrail hook blocks rm with a tilde path before the command runs.', 'topic', [0, 1, 0]));
+  ids.bom = await store.putMemory(memory('Hook encoding trap', 'A PowerShell hook script with an em dash breaks without a BOM.', 'value', [0, 0, 1]));
+  ids.family = await store.putMemory(memory('Family background', 'Virgil grew up moving between cities and learned to rebuild routines from scratch.', 'pattern', [-1, 0, 0]));
+  await link(store, ids.push, ids.guard);
+  await link(store, ids.push, ids.bom, 'supports');
+  await link(store, ids.guard, ids.bom);
+  return ids;
+}
+
+const minted = async (store: SqliteCortexStore): Promise<Memory[]> =>
+  (await store.getAllMemories()).filter((m) => m.memory_origin === 'abstract');
+
+describe('abstractCrossDomain (#147)', () => {
+  it('stores a real shared mechanism at lower salience, linked only to the members it spans', async () => {
+    const store = new SqliteCortexStore(':memory:');
+    const ids = await seedHooks(store);
+
+    // A seed is drawn at random and the family memory has no related members,
+    // so give the phase enough attempts to draw a hook seed; the within-run
+    // dedupe keeps it to one write.
+    const result = await abstractCrossDomain(store, makeEmbed(), makeLLM(), { abstraction_attempts: 20 });
+
+    expect(result.abstractions).toBe(1);
+    const [abs] = await minted(store);
+    expect(abs.name).toBe('Hooks that block commands');
+    expect(abs.definition).toBe(ABSTRACTION);
+    expect(abs.salience).toBe(ABSTRACTION_SALIENCE);
+    expect(ABSTRACTION_SALIENCE).toBeLessThan(0.8);
+    const targets = (await store.getEdgesFrom(abs.id)).filter((e) => e.relation === 'exemplifies').map((e) => e.target_id);
+    expect(targets.sort()).toEqual([ids.push, ids.guard].sort());
+  });
+
+  it('only shows the model memories related to the seed — never an unconnected one', async () => {
+    const store = new SqliteCortexStore(':memory:');
+    await seedHooks(store);
+    const llm = makeLLM({ none: true });
+
+    await abstractCrossDomain(store, makeEmbed(), llm, { abstraction_attempts: 12 });
+
+    expect(llm.prompts.length).toBeGreaterThan(0);
+    for (const p of llm.prompts) expect(p).not.toContain('Family background');
+  });
+
+  it('writes nothing when the model answers none', async () => {
+    const store = new SqliteCortexStore(':memory:');
+    await seedHooks(store);
+
+    const result = await abstractCrossDomain(store, makeEmbed(), makeLLM({ none: true }), { abstraction_attempts: 5 });
+
+    expect(result.abstractions).toBe(0);
+    expect(await minted(store)).toHaveLength(0);
+  });
+
+  it('rejects a theme that no member uses, however fluent', async () => {
+    const store = new SqliteCortexStore(':memory:');
+    await seedHooks(store);
+    const theme = {
+      mechanism: 'agency and constraint shape systems through friction',
+      members: ['Push gate fixed', 'Guardrail hook blocks deletes'],
+      name: 'Agency and Constraint',
+      abstraction: 'The deeper pattern is that agency and constraint shape systems through friction. It matters because boundaries define what can be built.',
+    };
+
+    const result = await abstractCrossDomain(store, makeEmbed(), makeLLM(theme), { abstraction_attempts: 20 });
+
+    expect(result.abstractions).toBe(0);
+    expect(result.rejected).toBeGreaterThan(0);
+    expect(await minted(store)).toHaveLength(0);
+  });
+
+  it('does not ask the model at all when the seed has fewer than two related memories', async () => {
+    const store = new SqliteCortexStore(':memory:');
+    for (const [i, cat] of (['belief', 'topic', 'value'] as MemoryCategory[]).entries()) {
+      const v = [0, 0, 0]; v[i] = 1;
+      await store.putMemory(memory(`Lone ${i}`, `Lone memory ${i} with nothing near it.`, cat, v));
+    }
+    const llm = makeLLM();
+
+    const result = await abstractCrossDomain(store, makeEmbed(), llm, { abstraction_attempts: 5 });
+
+    expect(result.abstractions).toBe(0);
+    expect(llm.prompts).toHaveLength(0);
+  });
+
+  it('never samples a faded memory or an existing abstraction as a member', async () => {
+    const store = new SqliteCortexStore(':memory:');
+    const ids = await seedHooks(store);
+    const fadedId = await store.putMemory(memory('Old hook rule', 'An old hook rule blocked every command.', 'insight', [0.9, 0.1, 0], { faded: true }));
+    const absId = await store.putMemory(memory('Earlier synthesis', 'A previous abstraction about hooks and commands.', 'insight', [0.8, 0.2, 0], { memory_origin: 'abstract' }));
+    await link(store, ids.push, fadedId);
+    await link(store, ids.push, absId);
+    const llm = makeLLM({ none: true });
+
+    await abstractCrossDomain(store, makeEmbed(), llm, { abstraction_attempts: 12 });
+
+    for (const p of llm.prompts) {
+      expect(p).not.toContain('Old hook rule');
+      expect(p).not.toContain('Earlier synthesis');
+    }
+  });
+
   it('writes the same synthesis once per run, not once per attempt', async () => {
     const store = new SqliteCortexStore(':memory:');
-    await seedThreeCategories(store);
+    await seedHooks(store);
 
     const result = await abstractCrossDomain(store, makeEmbed(), makeLLM(), { abstraction_attempts: 5 });
 
     expect(result.abstractions).toBe(1);
-    const all = await store.getAllMemories();
-    const minted = all.filter((m) => m.memory_origin === 'abstract');
-    expect(minted).toHaveLength(1);
-    // The first sentence is 62 characters, so the shared 60-character
-    // heuristic clips it on a word boundary and marks the elision.
-    expect(minted[0].name).toMatch(/^The sky, the sea, the clouds and the sun/);
-    expect(minted[0].name.length).toBeLessThanOrEqual(60);
-    expect(minted[0].name).not.toMatch(/[*\n]/);
-  });
-
-  it('stores the parsed label as the name and the body as the definition', async () => {
-    const store = new SqliteCortexStore(':memory:');
-    await seedThreeCategories(store);
-    const llm = makeLLM(`Pattern: *One Weather System*  \nExplanation: ${ABSTRACTION}`);
-
-    await abstractCrossDomain(store, makeEmbed(), llm, { abstraction_attempts: 1 });
-
-    const minted = (await store.getAllMemories()).find((m) => m.memory_origin === 'abstract');
-    expect(minted?.name).toBe('One Weather System');
-    expect(minted?.definition).toBe(ABSTRACTION);
-  });
-
-  it('never samples a faded memory, so no abstraction edge lands on one', async () => {
-    const store = new SqliteCortexStore(':memory:');
-    await seedThreeCategories(store);
-    const fadedId = await store.putMemory(memory('The sun is bright', 'The sun is bright at noon.', 'pattern', VEC.sun, true));
-    // Distinct text per attempt so the within-run check does not short-circuit sampling.
-    let n = 0;
-    const embed: EmbedProvider = { embed: vi.fn(async () => { n++; return [Math.cos(n), Math.sin(n), 0.1 * n]; }) };
-    const llm = makeLLM();
-
-    await abstractCrossDomain(store, embed, llm, { abstraction_attempts: 10, abstraction_dedupe_threshold: 1.01 });
-
-    const edges = await store.getEdgesFrom(fadedId);
-    const incoming = (await store.getAllMemories())
-      .filter((m) => m.memory_origin === 'abstract');
-    expect(incoming.length).toBeGreaterThan(0);
-    for (const abs of incoming) {
-      const fromAbs = await store.getEdgesFrom(abs.id);
-      expect(fromAbs.some((e) => e.target_id === fadedId)).toBe(false);
-    }
-    expect(edges.some((e) => e.relation === 'exemplifies')).toBe(false);
+    expect(await minted(store)).toHaveLength(1);
   });
 });

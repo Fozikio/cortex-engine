@@ -147,20 +147,28 @@ describe('abstract names an unlabelled synthesis (#85)', () => {
   it('asks for a concept label instead of clipping the first clause', async () => {
     const store = new SqliteCortexStore(':memory:');
     const seeds: Array<[string, string, MemoryCategory, number[]]> = [
-      ['The sky is blue', 'The sky is blue on clear days.', 'belief', [1, 0, 0]],
-      ['The sea is deep', 'The sea is deep and cold.', 'topic', [0, 1, 0]],
-      ['Clouds are white', 'Clouds are white and drift.', 'value', [0, 0, 1]],
+      ['The sky is blue', 'The sky is blue in clear weather.', 'belief', [1, 0, 0]],
+      ['The sea is deep', 'The sea is deep and cold in any weather.', 'topic', [0, 1, 0]],
+      ['Clouds are white', 'Clouds are white and drift with the weather.', 'value', [0, 0, 1]],
     ];
+    const ids: string[] = [];
     for (const [name, definition, category, embedding] of seeds) {
-      await store.putMemory(memory({ name, definition, category, embedding }));
+      ids.push(await store.putMemory(memory({ name, definition, category, embedding })));
+    }
+    for (const [a, b] of [[0, 1], [0, 2], [1, 2]]) {
+      await store.putEdge({ source_id: ids[a], target_id: ids[b], relation: 'related', weight: 0.5, evidence: 'weather', created_at: new Date() });
     }
     const synthesis =
-      'The deeper pattern is that the sky, the sea and the clouds are one weather system. The blue sky, the deep sea and the white clouds each show a part of it, and that matters because no part explains the weather alone.';
+      'The sky, the sea and the clouds are each read through the weather. The blue sky, the deep sea and the white clouds each show a part of it, and that matters because no part explains the weather alone.';
     const llm = {
       name: 'fake', modelId: 'fake',
-      // First call is the synthesis, the second is deriveName's label.
-      generate: vi.fn().mockResolvedValueOnce(synthesis).mockResolvedValue('One Weather System'),
-      generateJSON: vi.fn(async () => ({})),
+      // No usable name in the JSON answer, no label line in the text: deriveName labels it.
+      generateJSON: vi.fn(async () => ({
+        mechanism: 'each changes with the weather',
+        members: ['The sky is blue', 'The sea is deep', 'Clouds are white'],
+        abstraction: synthesis,
+      })),
+      generate: vi.fn(async () => 'One Weather System'),
     } as unknown as LLMProvider;
 
     await abstractCrossDomain(store, { embed: vi.fn(async () => [0.5, 0.5, 0.5]) }, llm, { abstraction_attempts: 1 });

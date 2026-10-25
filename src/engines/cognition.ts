@@ -42,6 +42,7 @@ import {
   substituteConceptPlaceholders,
 } from './thought-quality.js';
 import { checkRewrite } from './rewrite-guard.js';
+import { checkMechanism, documentFrequency } from './abstraction-check.js';
 import {
   REFINE_DEFINITION,
   EDGE_REVALIDATE,
@@ -89,7 +90,7 @@ export interface DreamResult {
     connect: { edges_discovered: number };
     score: { scored: number };
     report: { text: string };
-    abstract: { abstractions: number };
+    abstract: { abstractions: number; rejected?: number };
     hindsight?: { reviewed: number; revised: number; declined?: number };
   };
   total_processed: number;
@@ -119,6 +120,8 @@ export interface DreamOptions {
   create_limit?: number;
   /** Max abstraction attempts in REM phase (default: 5) */
   abstraction_attempts?: number;
+  /** Embedding similarity at which a non-neighbour counts as related when sampling abstraction members (default: 0.50, #147) */
+  abstraction_relate_floor?: number;
   /** Similarity an observation needs to join an existing memory (default: 0.75, see DEFAULT_CLUSTER_THRESHOLD) */
   cluster_threshold?: number;
   /** Similarity threshold for detecting duplicate abstractions (default: 0.88) */
@@ -233,6 +236,8 @@ export interface ScorePhaseResult {
 
 export interface AbstractPhaseResult {
   abstractions: number;
+  /** Syntheses refused because no concrete shared mechanism held (#147) or the quality gate failed. */
+  rejected?: number;
 }
 
 export interface ReportPhaseResult {
@@ -1099,9 +1104,81 @@ export function parseAbstraction(raw: string): { name: string; definition: strin
   return { name, definition, labelled };
 }
 
+/** Salience a new abstraction starts at (#147): unverified synthesis, not a finding. Retrieval feedback raises it. */
+export const ABSTRACTION_SALIENCE = 0.5;
+
 /**
- * REM sleep phase: sample recent memories across categories and attempt
- * to synthesize higher-level cross-domain abstractions.
+ * Embedding similarity at which a non-neighbour counts as related to the seed
+ * when sampling abstraction members (#147). Measured on one store
+ * (qwen3-embedding:0.6b): random pairs p90 0.43, edge-linked pairs median
+ * 0.37–0.42, so similarity alone barely separates related from unrelated and
+ * the graph does most of the work; 0.50 admits only near neighbours.
+ */
+const DEFAULT_ABSTRACTION_RELATE_FLOOR = 0.50;
+const ABSTRACTION_MAX_OTHERS = 3;
+
+interface AbstractionJSON {
+  none?: boolean;
+  mechanism?: unknown;
+  members?: unknown;
+  name?: unknown;
+  abstraction?: unknown;
+}
+
+/**
+ * Members for one abstraction attempt: the seed's graph neighbours (any
+ * relation but `exemplifies`, which abstractions themselves write) and its
+ * near neighbours by embedding, preferring categories the group doesn't
+ * have yet. Before #147 each member came from a different random category,
+ * so the model was handed unrelated memories and asked what connects them.
+ */
+async function relatedMembers(
+  store: CortexStore,
+  seed: Memory,
+  poolById: Map<string, Memory>,
+  relateFloor: number,
+): Promise<Memory[]> {
+  const ids = new Set<string>();
+  const edges = await safeStoreRead(store.getEdgesForMemories([seed.id]), [] as Edge[], 'abstract:edges', _dreamStats);
+  for (const e of edges) {
+    if (e.relation === 'exemplifies') continue;
+    ids.add(e.source_id === seed.id ? e.target_id : e.source_id);
+  }
+  if (seed.embedding?.length) {
+    const near = await safeStoreRead(store.findNearest(seed.embedding, 8), [], 'abstract:nearest', _dreamStats);
+    for (const n of near) if (n.score >= relateFloor) ids.add(n.memory.id);
+  }
+  ids.delete(seed.id);
+
+  const candidates = [...ids]
+    .map((id) => poolById.get(id))
+    .filter((m): m is Memory => m !== undefined)
+    .sort(() => Math.random() - 0.5);
+
+  const chosen: Memory[] = [];
+  const categories = new Set<MemoryCategory>([seed.category]);
+  for (const m of candidates) {
+    if (chosen.length >= ABSTRACTION_MAX_OTHERS) break;
+    if (!categories.has(m.category)) { chosen.push(m); categories.add(m.category); }
+  }
+  for (const m of candidates) {
+    if (chosen.length >= ABSTRACTION_MAX_OTHERS) break;
+    if (!chosen.includes(m)) chosen.push(m);
+  }
+  return chosen;
+}
+
+/**
+ * REM sleep phase: find a concrete mechanism shared by memories that already
+ * relate, and record it as an abstraction (#147).
+ *
+ * Each attempt seeds on a recent memory and samples its related members.
+ * The model answers in JSON, naming the mechanism and the members it spans;
+ * `checkMechanism` keeps it only when the mechanism holds a distinctive,
+ * non-abstract term that two cited members' own text contains. The
+ * abstraction starts at ABSTRACTION_SALIENCE and links (`exemplifies`) only
+ * to the members it cites. Abstractions are never members themselves, so
+ * syntheses don't compound on syntheses.
  *
  * Exported for tests; dream callers go through dreamPhaseB / dreamConsolidate.
  */
@@ -1114,7 +1191,9 @@ export async function abstractCrossDomain(
   const attempts = options.abstraction_attempts ?? 5;
   const noveltyThreshold = options.abstraction_novelty_threshold ?? 0.88;
   const dedupeThreshold = options.abstraction_dedupe_threshold ?? 0.60;
+  const relateFloor = options.abstraction_relate_floor ?? DEFAULT_ABSTRACTION_RELATE_FLOOR;
   let abstractions = 0;
+  let rejected = 0;
   // Embeddings of abstractions written in this run, for the within-run check.
   const writtenThisRun: number[][] = [];
 
@@ -1122,107 +1201,93 @@ export async function abstractCrossDomain(
   try {
     allMemories = await store.getAllMemories();
   } catch {
-    return { abstractions: 0 };
+    return { abstractions: 0, rejected: 0 };
   }
 
-  // Work from the 60 most recently updated memories. Faded memories are
-  // excluded: fading lowers a memory's salience on purpose, and an
-  // abstraction that cites it re-attaches edges to it and pulls it back into
-  // the graph — one live run put four edges on intentionally faded rows.
-  // Source memories are excluded too (#114): an abstraction is a belief
-  // derived from its members, and a mirrored file is not a belief to
-  // generalise from. An abstraction built on organic memories may still be
-  // linked to a source memory by connect; it just never cites one as a member.
-  const recent = allMemories
-    .filter((m) => !m.faded && !isSource(m))
+  // Faded memories are excluded: fading lowers a memory's salience on
+  // purpose, and an abstraction that cites it re-attaches edges to it and
+  // pulls it back into the graph. Source memories are excluded (#114): a
+  // mirrored file is not a belief to generalise from. Abstractions are
+  // excluded (#147): a synthesis of syntheses is how one generic theme
+  // spreads across the graph.
+  const pool = allMemories.filter((m) => !m.faded && !isSource(m) && m.memory_origin !== 'abstract');
+  if (pool.length < 3) return { abstractions: 0, rejected: 0 };
+  const poolById = new Map(pool.map((m) => [m.id, m]));
+  const df = documentFrequency(pool.map((m) => `${m.name} ${m.definition}`));
+
+  // Seeds come from the 60 most recently updated memories.
+  const recent = [...pool]
     .sort((a, b) => b.updated_at.getTime() - a.updated_at.getTime())
     .slice(0, 60);
 
-  // Group by category.
-  const byCategory = new Map<MemoryCategory, Memory[]>();
-  for (const m of recent) {
-    const group = byCategory.get(m.category) ?? [];
-    group.push(m);
-    byCategory.set(m.category, group);
-  }
-
-  const categories = Array.from(byCategory.keys());
-  if (categories.length < 3) return { abstractions: 0 };
-
   for (let attempt = 0; attempt < attempts; attempt++) {
     try {
-      // Pick 4 different random categories (or as many as available, min 3).
-      const shuffled = categories.sort(() => Math.random() - 0.5);
-      const selected = shuffled.slice(0, Math.min(4, shuffled.length));
-
-      // Pick one random memory from each selected category.
-      const sampledMemories = selected.map((cat) => {
-        const group = byCategory.get(cat)!;
-        return group[Math.floor(Math.random() * group.length)];
-      });
+      const seed = recent[Math.floor(Math.random() * recent.length)];
+      const others = await relatedMembers(store, seed, poolById, relateFloor);
+      if (others.length < 2) continue;
+      const sampledMemories = [seed, ...others];
 
       const conceptLines = sampledMemories
         .map((m) => `[${m.category}] ${m.name}: ${m.definition}`)
         .join('\n\n');
 
-      const result = await llm.generate(ABSTRACT_SYNTHESIS.build({ conceptLines }), {
-        temperature: 0.4,
-        maxTokens: 500,
+      const answer = await llm.generateJSON<AbstractionJSON>(ABSTRACT_SYNTHESIS.build({ conceptLines }), {
+        temperature: 0.3,
+        maxTokens: 600,
       });
+      if (!answer || answer.none === true || typeof answer.abstraction !== 'string') continue;
 
-      const raw = result.trim();
-      if (!raw || raw.includes('NO_ABSTRACTION')) continue;
+      const mechanism = checkMechanism({
+        mechanism: answer.mechanism,
+        cited: answer.members,
+        members: sampledMemories.map((m) => ({ name: m.name, text: m.definition })),
+        df,
+        poolSize: pool.length,
+      });
+      if (!mechanism.ok) {
+        console.error(`[dream:abstract] Rejected abstraction: ${mechanism.reasons.join('; ')}`);
+        rejected++;
+        continue;
+      }
+      const cited = sampledMemories.filter((m) => mechanism.citedMembers.some((c) => c.name === m.name));
 
-      // Salvage formatting rather than reject on it. A rejected abstraction
-      // leaves nothing in its place — unlike refine, where the previous
-      // definition survives — so discarding a real cross-domain synthesis over
-      // its asterisks or its title line is the more expensive error. Parsing
-      // changes no content: the label becomes the name, the body becomes the
-      // definition, and the markdown goes.
-      const parsed = parseAbstraction(raw);
+      const parsed = parseAbstraction(answer.abstraction);
       if (!parsed) continue;
       const trimmed = parsed.definition;
-      if (trimmed !== raw) {
-        console.error('[dream:abstract] Normalised abstraction formatting (title line / markdown)');
-      }
 
-      // Structural quality gate. Abstractions legitimately introduce new
-      // vocabulary (that's what abstraction is), so the grounding floor is
-      // lower than refine's — but a real cross-domain pattern still names
-      // the concepts it connects, while generic filler names nothing.
+      // Structural quality gate, against the members the mechanism spans.
+      // Abstractions legitimately introduce new vocabulary, so the grounding
+      // floor is lower than refine's.
       const quality = assessThought(trimmed, {
-        evidence: sampledMemories.map((m) => `${m.name} ${m.definition}`),
+        evidence: cited.map((m) => `${m.name} ${m.definition}`),
         minGrounding: 0.1,
       });
       if (!quality.ok) {
         console.error(`[dream:abstract] Rejected abstraction: ${quality.reasons.join('; ')}`);
+        rejected++;
         continue;
       }
 
       // Check novelty — don't store abstractions too similar to existing memories.
       const abstEmbedding = await embed.embed(trimmed);
       const nearest = await store.findNearest(abstEmbedding, 1);
+      if (nearest.length > 0 && nearest[0].score >= noveltyThreshold) continue;
 
-      if (nearest.length > 0 && nearest[0].score >= noveltyThreshold) {
-        // Too similar to an existing memory — skip.
-        continue;
-      }
-
-      // Same idea twice in one run: attempts sample overlapping memories and
-      // the model restates the same synthesis in new words. The store-wide
-      // check above misses paraphrases; this one compares against what this
-      // run has already written.
+      // Same idea twice in one run: the store-wide check above misses
+      // paraphrases; this one compares against what this run already wrote.
       if (writtenThisRun.some((e) => cosineSimilarity(e, abstEmbedding) >= dedupeThreshold)) {
         console.error('[dream:abstract] Skipped near-duplicate of an abstraction written earlier in this run');
         continue;
       }
 
-      // No label line means the heuristic name is the definition's first
-      // clause cut short ("The deeper pattern is that systems—whether…"),
-      // which says nothing about the pattern (#85). Ask for a concept label
-      // the way create names its memories; deriveName falls back to the
-      // heuristic itself if the LLM fails.
-      const memName = parsed.labelled ? parsed.name : await deriveName(trimmed, llm);
+      // The model's own label when it gave a usable one, then a label line in
+      // the text, then deriveName — never the first clause cut short (#85).
+      const givenName = typeof answer.name === 'string'
+        ? answer.name.replace(/\s+/g, ' ').replace(/[\s.!?;:,]+$/, '').trim()
+        : '';
+      const memName = givenName && givenName.length <= NAME_MAX_LEN
+        ? givenName
+        : parsed.labelled ? parsed.name : await deriveName(trimmed, llm);
 
       // Abstraction memory + its provenance edges land together. Otherwise
       // a partial commit produces an "insight" with no traceable sources.
@@ -1231,7 +1296,7 @@ export async function abstractCrossDomain(
           name: memName,
           definition: trimmed,
           category: 'insight',
-          salience: 0.8,
+          salience: ABSTRACTION_SALIENCE,
           confidence: 0.6,
           access_count: 0,
           created_at: new Date(),
@@ -1243,13 +1308,13 @@ export async function abstractCrossDomain(
           fsrs: newFSRSState(),
           memory_origin: 'abstract',
         });
-        for (const sourceMem of sampledMemories) {
+        for (const sourceMem of cited) {
           await txn.putEdge({
             source_id: abstractionId,
             target_id: sourceMem.id,
             relation: 'exemplifies',
             weight: 0.8,
-            evidence: `Dream abstraction source: [${sourceMem.category}] ${sourceMem.name}`,
+            evidence: `Dream abstraction source: [${sourceMem.category}] ${sourceMem.name} (shared: ${mechanism.sharedTerms.slice(0, 5).join(', ')})`,
             created_at: new Date(),
           });
         }
@@ -1263,7 +1328,7 @@ export async function abstractCrossDomain(
     }
   }
 
-  return { abstractions };
+  return { abstractions, rejected };
 }
 
 // ─── Phase 7: Report ──────────────────────────────────────────────────────────
@@ -1757,7 +1822,7 @@ export async function dreamConsolidate(
       connect: { edges_discovered: connectResult.edges_discovered },
       score: { scored: scoreResult.scored },
       report: { text: reportResult.text },
-      abstract: { abstractions: abstractResult.abstractions },
+      abstract: { abstractions: abstractResult.abstractions, rejected: abstractResult.rejected ?? 0 },
       hindsight: {
         reviewed: hindsightResult.reviewed,
         revised: hindsightResult.revised,

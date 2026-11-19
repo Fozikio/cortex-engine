@@ -308,7 +308,7 @@ The plugin system is still available for custom extensions — see [Plugin Docs]
   - [Agent-first setup](docs/agent-first-setup.md) — Workspace initialization walkthrough
 - **[Discussions](https://github.com/Fozikio/cortex-engine/discussions)** — Ask questions, share what you've built
 - **[Contributing](https://github.com/Fozikio/.github/blob/main/CONTRIBUTING.md)** — How to contribute
-- **[Project Board](https://github.com/orgs/Fozikio/projects/2)** — Roadmap and active work
+- **[Issues](https://github.com/Fozikio/cortex-engine/issues)** — Open work and known gaps
 - **[Security](https://github.com/Fozikio/.github/blob/main/SECURITY.md)** — Report vulnerabilities
 
 ## Community
@@ -321,7 +321,7 @@ The plugin system is still available for custom extensions — see [Plugin Docs]
 ## Related Projects
 
 - [@fozikio/reflex](https://github.com/Fozikio/reflex) — Portable safety guardrails for agents. Rules as data, not code.
-- [sigil](https://github.com/Fozikio/sigil) — Agent control surface. Signals and gestures, not conversations.
+- [sigil](https://github.com/Fozikio/sigil) — Agent control surface (archived, no longer maintained).
 - [fozikio.com](https://www.fozikio.com) — Documentation and guides
 
 ## License
